@@ -1,0 +1,23 @@
+{
+	"extends": "@blake.regalia/tsconfig/tsconfig.node.json",
+
+	"compilerOptions": {
+		"baseUrl": ".",
+		"lib": ["DOM"]
+	},
+
+	"include": [
+		"src/**/*.d.ts",
+		"src/**/*.ts",
+		"res/**/*.ts",
+		".eslintrc.cjs"
+	],
+
+	"paths": {
+		"@rdfjs/data-model": ["src/rdfjs.d.ts"]
+	},
+
+	"ts-node": {
+		"experimentalSpecifierResolution": "node"
+	}
+}
