@@ -1,0 +1,5 @@
+# these commands can be run using the `vr` cli tool: https://velociraptor.run
+scripts:
+  install: deno cache --reload --lock=deno.lock deps.ts
+  update: udd deps.ts && deno cache --lock=deno.lock --lock-write deps.ts
+  start: deno run --allow-net src/main.ts

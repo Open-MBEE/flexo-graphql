@@ -10,6 +10,7 @@
 		"src/**/*.d.ts",
 		"src/**/*.ts",
 		"res/**/*.ts",
+		"deps.ts",
 		".eslintrc.cjs"
 	],
 

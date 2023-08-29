@@ -2,14 +2,7 @@ import type {Dict} from '@blake.regalia/belt';
 import type {ObjectTypeDefinitionNode} from 'graphql';
 
 import {Kind, Source, parse, visit} from 'graphql';
-
-const A_PRIMITIVES = [
-	'Int',
-	'Float',
-	'String',
-	'Boolean',
-	'ID',
-];
+import { A_PRIMITIVES } from './share.ts';
 
 const group = (sx_decl: string, a_statements: string[]) => `${sx_decl} {${a_statements.map(s => `\n  ${s}`).join('')}\n}\n\n`;
 

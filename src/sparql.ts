@@ -1,10 +1,9 @@
-import type {Dict, JsonObject, JsonValue} from '@blake.regalia/belt';
+import type {BinderStruct, SparqlPlan} from './share.ts';
+import type {Dict, JsonObject, JsonValue} from '../deps.ts';
 
-import {ode} from '@blake.regalia/belt';
+import {P_NS_BASE, P_NS_DEF, P_NS_RDF, P_NS_XSD} from './share.ts';
 
-import {default as sparqljs} from 'sparqljs';
-
-import {P_NS_BASE, type BinderStruct, type SparqlPlan, P_NS_DEF, P_NS_RDF, P_NS_XSD} from './share';
+import {ode, sparqljs} from '../deps.ts';
 
 
 type SparqlBinding = Dict<{
@@ -164,7 +163,10 @@ function rebind(
 	}
 }
 
-export async function exec_plan(g_plan: SparqlPlan): Promise<Dict<JsonValue>> {
+export async function exec_plan(g_plan: SparqlPlan): Promise<{
+	bindings: Dict<JsonValue>;
+	query: string;
+}> {
 	const y_gen = new sparqljs.Generator();
 
 	const sx_sparql = y_gen.stringify({
@@ -206,5 +208,8 @@ export async function exec_plan(g_plan: SparqlPlan): Promise<Dict<JsonValue>> {
 	// rebind results
 	rebind(g_response.results.bindings, g_plan.shape, h_output, [], a_errors);
 
-	return h_output;
+	return {
+		bindings: h_output,
+		query: sx_sparql,
+	};
 }
