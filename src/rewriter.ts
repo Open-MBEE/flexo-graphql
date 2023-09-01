@@ -28,7 +28,7 @@ import {
 	factory,
 	Kind, parse, visit, jsonld, BREAK,
 } from '../deps.ts';
-import { ConstDirectiveNode, DirectiveDefinitionNode, DocumentNode, FieldDefinitionNode, ObjectTypeDefinitionNode, graphql } from 'npm:graphql@^16.8.0';
+import { ConstDirectiveNode, DirectiveDefinitionNode, DocumentNode, FieldDefinitionNode, InterfaceTypeDefinitionNode, ObjectTypeDefinitionNode, graphql } from 'npm:graphql@^16.8.0';
 import { NamedNode } from 'npm:@rdfjs/types@^1.1.0';
 
 
@@ -61,6 +61,7 @@ const H_BINARY_OPERATORS: Dict = {
 	lessThanOrEqualTo: '<=',
 	lesserThanOrEqualTo: '<=',
 
+	contains: 'contains',
 	startsWith: 'strStarts',
 	endsWith: 'strEnds',
 	regex: 'contains',
@@ -180,18 +181,20 @@ export class GraphqlRewriter {
 		// map type defs
 		const h_types = this._h_types;
 		for(const g_def of this._y_doc.definitions) {
-			if(Kind.OBJECT_TYPE_DEFINITION === g_def.kind) {
+			if([Kind.OBJECT_TYPE_DEFINITION, Kind.INTERFACE_TYPE_DEFINITION].includes(g_def.kind)) {
+				const g_def_union = g_def as ObjectTypeDefinitionNode | InterfaceTypeDefinitionNode;
+
 				const h_fields: Dict<FieldDefinitionNode> = {};
-				for(const g_field of g_def.fields || []) {
+				for(const g_field of g_def_union.fields || []) {
 					h_fields[g_field.name.value] = g_field;
 				}
 
 				const h_directives: Dict<ConstDirectiveNode> = {};
-				for(const g_directive of g_def.directives || []) {
+				for(const g_directive of g_def_union.directives || []) {
 					h_directives[g_directive.name.value] = g_directive;
 				}
 
-				const si_label = g_def.name.value;
+				const si_label = g_def_union.name.value;
 				h_types[si_label] = {
 					label: si_label,
 					fields: h_fields,
@@ -502,7 +505,7 @@ export class GraphqlRewriter {
 					let g_target!: Quad_Subject;
 
 					// variable predicate
-					if('__any' === si_field) {
+					if('_any' === si_field) {
 						// symbol
 						const si_symbol = next_symbol(yn_field.alias?.value || 'any');
 
@@ -778,8 +781,3 @@ function graphql_value_to_rdfjs_term(g_value: ValueNode): Literal {
 		return factory.literal('void', 'void://null');
 	}
 }
-
-export function graphql_query_to_sparql_plan(sx_query: string): SparqlPlan {
-}
-
-

@@ -1,11 +1,11 @@
 import type {GraphqlRewriterConfig} from './rewriter.ts';
-import type {OakResponse, OakResponseBody, BodyJson} from '../deps.ts';
+import type {OakResponse, OakResponseBody} from '../deps.ts';
 
 import {GraphqlRewriter} from './rewriter.ts';
 import {exec_plan} from './sparql.ts';
 
-
-import {Application, Router, parseContentType} from '../deps.ts';
+import {Application, Router, oakCors, oderac, parseCli, parseContentType} from '../deps.ts';
+import { SchemaHandler, handle_schema_request } from './apollo.ts';
 
 const SX_MIME_JSON = 'application/json';
 const SX_MIME_GRAPHQL_RESPONSE = 'application/graphql-response+json';
@@ -19,34 +19,35 @@ const close_res = (d_res: OakResponse, xc_code: number, w_body: OakResponseBody)
 	d_res.body = w_body;
 };
 
-const A_OPT_JSONLD_CONTEXT = ['--context', '-c'];
-const A_OPT_GRAPHQL_SCHEMA = ['--schema', '-s'];
+const H_OPT_ALIASES = {
+	c: 'context',
+	s: 'schema',
+	p: 'port,'
+};
 
-let sx_jsonld_context = '';
-let sx_graphql_schema = '';
-{
-	const a_args = [...Deno.args];
-	for(; a_args.length;) {
-		const s_arg = a_args.shift()!;
+const h_flags = parseCli(Deno.args, {
+	boolean: ['help'],
+	string: Object.values(H_OPT_ALIASES),
+	alias: {
+		h: 'help',
+		...H_OPT_ALIASES,
+	},
+});
 
-		if([...A_OPT_JSONLD_CONTEXT, ...A_OPT_GRAPHQL_SCHEMA].includes(s_arg)) {
-			const s_value = a_args.shift();
-
-			if(!s_value) {
-				throw new Error(`Missing value for '${s_arg}' option`);
-			}
-			else if(A_OPT_JSONLD_CONTEXT.includes(s_arg)) {
-				sx_jsonld_context = Deno.readTextFileSync(s_value);
-			}
-			else if(A_OPT_GRAPHQL_SCHEMA.includes(s_arg)) {
-				sx_graphql_schema = Deno.readTextFileSync(s_value);
-			}
-			else {
-				throw new Error(`Unknown CLI options parsing error`);
-			}
-		}
-	}
+if(h_flags['help'] || h_flags['h']) {
+	console.log([
+		'Options:',
+		...oderac(H_OPT_ALIASES, (si_alias, si_flag) => `  --${si_flag} or -${si_alias} [VALUE]`).join('\n'),
+	]);
+	Deno.exit(0);
 }
+
+const sr_jsonld_context = h_flags['context'] || h_flags['c'] || '';
+const sr_graphql_schema = h_flags['schema'] || h_flags['s'] || '';
+const n_port = parseInt(h_flags['port'] || h_flags['p'] || '3001');
+
+const sx_jsonld_context = sr_jsonld_context? Deno.readTextFileSync(sr_jsonld_context): '';
+const sx_graphql_schema = sr_graphql_schema? Deno.readTextFileSync(sr_graphql_schema): '';
 
 const k_rewriter = await GraphqlRewriter.create({
 	schema: sx_graphql_schema,
@@ -54,6 +55,8 @@ const k_rewriter = await GraphqlRewriter.create({
 		'@context': GraphqlRewriterConfig['context'];
 	})['@context'],
 });
+
+const y_apollo = new SchemaHandler(sx_graphql_schema);
 
 const y_router = new Router()
 	.post('/graphql', async({request:d_req, response:d_res}) => {
@@ -103,6 +106,21 @@ const y_router = new Router()
 			});
 		}
 
+		// treat as schema request
+		try {
+			const g_res = await y_apollo.handle(sx_query);
+
+			// apollo handled it
+			if(g_res?.data && !g_res.errors?.length) {
+				// close response
+				d_res.body = g_res;
+
+				// exit
+				return;
+			}
+		}
+		catch(e_schema) {}
+
 		// translate query to sparql plan
 		const g_plan = k_rewriter.rewrite(sx_query);
 
@@ -131,47 +149,13 @@ const y_router = new Router()
 		};
 	});
 
+y_app.use(oakCors());
 y_app.use(y_router.routes());
 y_app.use(y_router.allowedMethods());
 
 y_app.listen({
-	port: 3001,
+	port: n_port,
 });
 
-// (async() => {
-// 	const h_queries = {
-// 		all_picklist_options: `
-// 			{
-// 				pickLists {
-// 					name
-// 					options: pickList @inverse @many {
-// 						... on PickListOption {
-// 							name
-// 						}
-// 					}
-// 				}
-// 			}
-// 		`,
 
-// 		l3_reqs: `
-// 			{
-// 				items {
-// 					fields {
-// 						state: __any {
-// 							... on PickListOption {
-// 								pickList(name: "MSR_Level")
-// 								name @filter(equals: "L3")
-// 							}
-// 						}
-// 					}
-// 				}
-// 			}
-// 		`,
-// 	};
 
-// 	const g_plan = graphql_query_to_sparql_plan(h_queries.l3_reqs);
-
-// 	const h_output = await exec_plan(g_plan);
-
-// 	console.log(JSON.stringify(h_output, null, '  '));
-// })();
