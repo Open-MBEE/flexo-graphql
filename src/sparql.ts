@@ -1,9 +1,10 @@
-import type {BinderStruct, SparqlPlan} from './share.ts';
-import type {Dict, JsonObject, JsonValue} from '../deps.ts';
+import type {BinderStruct, EvalError, SparqlPlan} from './share.ts';
+import type {Dict, JsonObject, JsonValue} from 'npm:@blake.regalia/belt@^0.15.0';
 
-import {P_NS_BASE, P_NS_DEF, P_NS_RDF, P_NS_XSD} from './share.ts';
+import {ode} from 'npm:@blake.regalia/belt@^0.15.0';
+import {default as sparqljs} from 'npm:sparqljs@3.7.1';
 
-import {ode, sparqljs} from '../deps.ts';
+import {P_NS_BASE, P_NS_DEF, P_NS_RDF, P_NS_XSD} from './constants.ts';
 
 
 type SparqlBinding = Dict<{
@@ -45,13 +46,12 @@ function sparql_binding_to_graphql_result(g_value: SparqlBinding[string]): JsonV
 }
 
 
-
 function rebind(
 	a_bindings: SparqlBinding[],
 	h_struct: BinderStruct,
 	h_out: Dict<JsonValue>,
 	a_path: string[],
-	a_errors: string[]
+	a_errors: EvalError[]
 ) {
 	// copy struct
 	const h_local = {...h_struct};
@@ -66,7 +66,7 @@ function rebind(
 
 			// each binding; add to values set
 			for(const g_binding of a_bindings) {
-				const w_intermediate = sparql_binding_to_graphql_result(g_binding[z_target]);
+				let w_intermediate = sparql_binding_to_graphql_result(g_binding[z_target]);
 
 				// merge objects
 				if('object' === typeof w_intermediate) {
@@ -74,13 +74,21 @@ function rebind(
 				}
 				// merge scalars
 				else {
+					// special proocessing for __typename; convert IRI to class name
+					if('__typename' === si_key && 'string' === typeof w_intermediate) {
+						w_intermediate = w_intermediate.replace(/^.*?([^#/]+)$/, '$1');
+					}
+
 					as_scalars.add(w_intermediate as boolean | number | string);
 				}
 			}
 
 			// divergent values
 			if((as_scalars.size + as_objects.size) > 1) {
-				a_errors.push(`Multiple divergent bindings encountered at ${a_path.join('.')}`);
+				a_errors.push({
+					message: `Multiple divergent bindings encountered; try adding the \`@many\` directive after \`${a_path.at(-1)}\` to collate results.`,
+					bindingPath: a_path.join('.'),
+				});
 			}
 			// single scalar value
 			else if(as_scalars.size) {
@@ -165,6 +173,7 @@ function rebind(
 
 export async function exec_plan(g_plan: SparqlPlan): Promise<{
 	bindings: Dict<JsonValue>;
+	errors: EvalError[];
 	query: string;
 }> {
 	const y_gen = new sparqljs.Generator();
@@ -203,13 +212,14 @@ export async function exec_plan(g_plan: SparqlPlan): Promise<{
 	const h_output: Dict<JsonValue> = {};
 
 	// prep errors
-	const a_errors: string[] = [];
+	const a_errors: EvalError[] = [];
 
 	// rebind results
 	rebind(g_response.results.bindings, g_plan.shape, h_output, [], a_errors);
 
 	return {
 		bindings: h_output,
+		errors: a_errors,
 		query: sx_sparql,
 	};
 }

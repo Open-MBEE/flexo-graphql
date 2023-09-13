@@ -1,37 +1,31 @@
 // eslint-disable-next-line @typescript-eslint/triple-slash-reference
 /// <reference path="./rdfjs.d.ts" />
 
-// import type {Dict, JsonObject, JsonValue} from '@blake.regalia/belt';
-// import type {Literal, Quad, Quad_Object, Quad_Predicate, Quad_Subject} from '@rdfjs/types';
-// import type {FieldNode, InlineFragmentNode, ValueNode} from 'graphql';
-
-// import type {Pattern} from 'sparqljs';
-
-// import {proper} from '@blake.regalia/belt';
-// import {default as factory} from '@rdfjs/data-model';
-// import {Kind, parse, visit} from 'graphql';
-
-import type {BinderStruct, SparqlPlan} from './share.ts';
-
+import type {BinderStruct, SparqlPlan, EvalError} from './share.ts';
+import type {Dict, JsonObject, JsonValue, Nilable} from 'npm:@blake.regalia/belt@^0.15.0';
+import type {Literal, NamedNode, Quad, Quad_Object, Quad_Predicate, Quad_Subject} from 'npm:@rdfjs/types@^1.1.0';
 import type {
-	Dict, JsonObject, JsonValue, Nilable,
-	Pattern,
-	Literal, Quad, Quad_Object, Quad_Predicate, Quad_Subject,
-	FieldNode, InlineFragmentNode, ValueNode,
-} from '../deps.ts';
+	ConstDirectiveNode,
+	DocumentNode,
+	FieldDefinitionNode,
+	FieldNode,
+	FragmentDefinitionNode,
+	InlineFragmentNode,
+	InterfaceTypeDefinitionNode,
+	ObjectTypeDefinitionNode,
+	ValueNode,
+} from 'npm:graphql@^16.8.0';
+import type {Pattern} from 'npm:sparqljs@^3.7.1';
 
-import {P_NS_BASE, P_NS_DEF, G_RDF_TYPE, P_NS_XSD, A_PRIMITIVES} from './share.ts';
+import {ode, proper} from 'npm:@blake.regalia/belt@^0.15.0';
+import {default as factory} from 'npm:@rdfjs/data-model@^1.1.0';
+import {Kind, parse, visit, BREAK} from 'npm:graphql@^16.8.0';
+import {default as jsonld} from 'npm:jsonld@^8.2.0';
 
-import {
-	ode, proper,
-	sparqljs,
-	factory,
-	Kind, parse, visit, jsonld, BREAK,
-} from '../deps.ts';
-import { ConstDirectiveNode, DirectiveDefinitionNode, DocumentNode, FieldDefinitionNode, InterfaceTypeDefinitionNode, ObjectTypeDefinitionNode, graphql } from 'npm:graphql@^16.8.0';
-import { NamedNode } from 'npm:@rdfjs/types@^1.1.0';
-
-
+import {A_PRIMITIVES, P_NS_XSD} from './constants.ts';
+import {G_RDF_TYPE} from './share.ts';
+import {transform_skip_include} from './transform-skip-include.ts';
+import {transform_variables} from './transform-variables.ts';
 
 interface TermNode extends FieldNode {
 	term: Quad_Subject;
@@ -44,27 +38,34 @@ interface TermFragment extends InlineFragmentNode {
 }
 
 const H_BINARY_OPERATORS: Dict = {
-	eq: '=',
-	neq: '!=',
-	gt: '>',
-	lt: '<',
-	gte: '>=',
-	lte: '<=',
+	is: '=',
+	not: '!=',
+
+	in: 'in',
+	notIn: 'notin',
+
+	// eq: '=',
+	// neq: '!=',
+	// gt: '>',
+	// lt: '<',
+	// gte: '>=',
+	// lte: '<=',
+	// equalTo: '=',
+	// notEqualTo: '!=',
+	// lesserThan: '<',
+	// lesserThanOrEqualTo: '<=',
+
 	equals: '=',
 	notEquals: '!=',
-	equalTo: '=',
-	notEqualTo: '!=',
-	greaterThan: '>',
 	lessThan: '<',
-	lesserThan: '<',
-	greaterThanOrEqualTo: '>=',
+	greaterThan: '>',
 	lessThanOrEqualTo: '<=',
-	lesserThanOrEqualTo: '<=',
+	greaterThanOrEqualTo: '>=',
 
 	contains: 'contains',
 	startsWith: 'strStarts',
 	endsWith: 'strEnds',
-	regex: 'contains',
+	regex: 'regex',
 };
 
 export interface GraphqlRewriterConfig {
@@ -114,6 +115,8 @@ const H_GRAPHQL_KINDS_MAP = {
 	[Kind.FLOAT]: 'decimal',
 	[Kind.STRING]: 'string',
 };
+
+
 
 function translate_expanded_node_def(si_key: string, g_node: JsonLdNode): TranslatedField {
 	// simple string
@@ -262,7 +265,7 @@ export class GraphqlRewriter {
 		return factory.namedNode(this.translate(si_key).iri);
 	}
 
-	rewrite(sx_query: string): SparqlPlan {
+	rewrite(sx_query: string, h_variables: Dict<any>): SparqlPlan {
 		const {_h_types} = this;
 		const h_queries = _h_types['Query'].fields;
 
@@ -270,9 +273,11 @@ export class GraphqlRewriter {
 		const k_self = this;
 
 		// errors
-		const a_errors: string[] = [];
+		const a_errors: EvalError[] = [];
 		function exit(s_err: string): typeof BREAK {
-			a_errors.push(s_err);
+			a_errors.push({
+				message: s_err,
+			});
 			return BREAK;
 		}
 
@@ -303,7 +308,51 @@ export class GraphqlRewriter {
 		const a_stack: any[] = [];
 
 		// parse query
-		const y_doc = parse(sx_query);
+		let y_doc = parse(sx_query);
+
+		// inline fragments
+		{
+			const h_fragments: Dict<FragmentDefinitionNode> = {};
+
+			// build lookup of fragments by name and remove them from ast
+			y_doc = visit(y_doc, {
+				[Kind.FRAGMENT_DEFINITION]: {
+					enter(yn_frag) {
+						// save def to lookup
+						h_fragments[yn_frag.name.value] = yn_frag;
+
+						// delete fragment def from ast
+						return null;
+					},
+				},
+			});
+
+			// replace spreads of named fragments with their contents
+			y_doc = visit(y_doc, {
+				[Kind.FRAGMENT_SPREAD]: {
+					enter(yn_spread) {
+						const si_frag = yn_spread.name.value;
+
+						// locate fragment
+						const yn_frag = h_fragments[si_frag];
+
+						// not found
+						if(!yn_frag) return exit(`No such fragment was defined in query: "${si_frag}"`);
+
+						// replace with selection set
+						return {
+							...yn_frag.selectionSet,
+						};
+					},
+				},
+			});
+		}
+
+		// substitute variables
+		y_doc = transform_variables(y_doc, exit, h_variables);
+
+		// apply @skip and @include directives
+		y_doc = transform_skip_include(y_doc, exit);
 
 		// visit ast
 		visit(y_doc, {
@@ -474,7 +523,7 @@ export class GraphqlRewriter {
 						if(Kind.FIELD === w_ancestor.kind || Kind.INLINE_FRAGMENT === w_ancestor.kind) {
 							// select it as subject node
 							g_subject = w_ancestor.term;
-							
+
 							// update object type
 							g_object_type = (w_ancestor as TermNode).object || null;
 
@@ -524,15 +573,35 @@ export class GraphqlRewriter {
 						// save to descriptor
 						h_descriptor['$any'] = g_predicate.value;
 						h_descriptor['$iri'] = g_target.value;
+
+						// save to ast node
+						(yn_field as TermNode).term = g_target;
+					}
+					// reserved __typename
+					else if('__typename' === si_field) {
+						// resolved object
+						g_target = factory.variable!(`${g_subject.value}_typename`);
+
+						// create property triple pattern
+						const g_property = factory.quad(g_subject, G_RDF_TYPE, g_target);
+
+						// add to bgp
+						a_bgp.push(g_property);
+
+						// save to descriptor
+						a_stack.at(-1)['__typename'] = g_target.value;
 					}
 					// not variable
 					else {
-						// whether or not the inverse directive is applied
-						const b_inverse = yn_field.directives?.find(g_directive => 'inverse' === g_directive.name.value);
+						// // whether or not the inverse directive is applied
+						// const b_inverse = yn_field.directives?.find(g_directive => 'inverse' === g_directive.name.value);
+
+						// inverse relation; normalize
+						const b_inverse = si_field.startsWith('_inv_');
 
 						// type-check property on object
 						let g_reference_type!: ObjectNode;
-						if(g_object_type && !b_inverse) {
+						if(g_object_type) {
 							const g_object_field_def = g_object_type.fields[si_field];
 
 							// no property found
@@ -540,7 +609,7 @@ export class GraphqlRewriter {
 								return exit(`No such property "${si_field}" defined on ${g_object_type.label} object type`);
 							}
 
-							const si_object_subtype = (g_object_field_def.type as {name?:{value:string}})?.name?.value;
+							const si_object_subtype = (g_object_field_def.type as {name?: {value: string}})?.name?.value;
 
 							// not a primitive type
 							if(si_object_subtype && !A_PRIMITIVES.includes(si_object_subtype)) {
@@ -560,7 +629,7 @@ export class GraphqlRewriter {
 						// use as predicate
 						let g_predicate: Quad_Predicate;
 						try {
-							g_predicate = k_self.node(si_field);
+							g_predicate = k_self.node(b_inverse? si_field.replace(/^_inv_/, ''): si_field);
 						}
 						catch(e_node) {
 							return exit((e_node as Error).message);
@@ -601,7 +670,7 @@ export class GraphqlRewriter {
 								// an object type definition exists
 								if(g_reference_type) {
 									const g_field_type = g_reference_type.fields[si_property];
-									
+
 									// property not defined on object
 									if(!g_field_type) {
 										return exit(`No such property "${si_property}" defined on ${g_reference_type.label} object type`);
@@ -660,41 +729,65 @@ export class GraphqlRewriter {
 							const gc_filter = yn_field.directives?.find(g => 'filter' === g.name.value);
 							if(gc_filter) {
 								for(const g_arg of gc_filter.arguments || []) {
-									const si_operator = g_arg.name.value;
+									let si_operator = g_arg.name.value;
+
+									// expression placeholder
+									let g_expression: {
+										type: 'operation';
+										operator: string;
+										args: any[];
+									};
+
+									// negation
+									let b_negate = false;
+									if(!(si_operator in H_BINARY_OPERATORS) && si_operator.startsWith('not')) {
+										b_negate = true;
+										si_operator = si_operator.replace(/^not(\w)/, (s_all, s_char) => s_char.toLowerCase());
+									}
 
 									// by binary comparison
 									if(si_operator in H_BINARY_OPERATORS) {
-										a_where.push({
-											type: 'filter',
-											expression: {
-												type: 'operation',
-												operator: H_BINARY_OPERATORS[si_operator],
-												args: [
-													g_target,
-													graphql_value_to_rdfjs_term(g_arg.value),
-												],
-											},
-										});
+										g_expression = {
+											type: 'operation',
+											operator: H_BINARY_OPERATORS[si_operator],
+											args: [
+												g_target,
+												graphql_value_to_sparqljs_arg(g_arg.value),
+											],
+										};
 									}
 									// using regex comparison
 									else if('regex' === si_operator) {
-										debugger;
-										throw new Error(`Regex not yet implemented`);
-										// a_where.push({
-										// 	type: 'filter',
-										// 	expression: {
-										// 		type: 'operation',
-										// 		operator: h_binary_operators[si_operator],
-										// 		args: [
-										// 			g_target,
-										// 			graphql_value_to_rdfjs_term(g_arg.value),
-										// 		],
-										// 	},
-										// });
+										// wrap variable in `str()` cast
+										g_expression = {
+											type: 'operation',
+											operator: 'regex',
+											args: [
+												{
+													type: 'operation',
+													operator: 'str',
+													args: [g_target],
+												},
+												graphql_value_to_sparqljs_arg(g_arg.value),
+											],
+										};
 									}
 									// other
 									else {
 										throw new Error(`Unknown operator "${si_operator}"`);
+									}
+
+									if(g_expression) {
+										a_where.push({
+											type: 'filter',
+											expression: b_negate
+												? {
+													type: 'operation',
+													operator: '!',
+													args: [g_expression],
+												}
+												: g_expression,
+										});
 									}
 								}
 							}
@@ -779,5 +872,20 @@ function graphql_value_to_rdfjs_term(g_value: ValueNode): Literal {
 	}
 	else {
 		return factory.literal('void', 'void://null');
+	}
+}
+
+interface NestedArray<w> {
+	[i_index: number]: w | NestedArray<w>;
+}
+
+type NestedArrayable<w> = NestedArray<w> | w;
+
+function graphql_value_to_sparqljs_arg(g_value: ValueNode): NestedArrayable<Literal> {
+	if(Kind.LIST === g_value.kind) {
+		return g_value.values.map(graphql_value_to_sparqljs_arg);
+	}
+	else {
+		return graphql_value_to_rdfjs_term(g_value);
 	}
 }

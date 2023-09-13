@@ -1,8 +1,11 @@
-import type {Dict} from '@blake.regalia/belt';
-import type {ObjectTypeDefinitionNode} from 'graphql';
+import type {Dict} from 'npm:@blake.regalia/belt@^0.15.0';
+import type {ObjectTypeDefinitionNode} from 'npm:graphql@^16.8.0';
 
-import {Kind, Source, parse, visit} from 'graphql';
-import { A_PRIMITIVES } from './share.ts';
+import {readAll} from 'https://deno.land/std@0.201.0/streams/read_all.ts';
+import {Kind, parse, visit} from 'npm:graphql@^16.8.0';
+
+import {A_PRIMITIVES} from './constants.ts';
+
 
 const group = (sx_decl: string, a_statements: string[]) => `${sx_decl} {${a_statements.map(s => `\n  ${s}`).join('')}\n}\n\n`;
 
@@ -11,10 +14,7 @@ const pascal = (s_name: string) => s_name[0].toUpperCase()+s_name.slice(1);
 const camel = (s_name: string) => s_name[0].toLowerCase()+s_name.slice(1);
 
 (async() => {
-	let s_body = '';
-	for await(const s_chunk of process.stdin) {
-		s_body += s_chunk;
-	}
+	const s_body = new TextDecoder().decode(await readAll(Deno.stdin));
 
 	const y_doc = parse(s_body);
 

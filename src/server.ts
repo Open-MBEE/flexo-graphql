@@ -1,11 +1,18 @@
 import type {GraphqlRewriterConfig} from './rewriter.ts';
-import type {OakResponse, OakResponseBody} from '../deps.ts';
+import type {Response as OakResponse} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
+import type {ResponseBody as OakResponseBody} from 'https://deno.land/x/oak@v12.6.1/response.ts';
 
+import {parse as parseCli} from 'https://deno.land/std@0.201.0/flags/mod.ts';
+import {parse as parseContentType} from 'https://deno.land/x/content_type@1.0.1/mod.ts';
+import {oakCors} from 'https://deno.land/x/cors@v1.2.2/mod.ts';
+import {Application, Context, Router} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
+import {send} from 'https://deno.land/x/oak@v12.6.1/send.ts';
+import {oderac} from 'npm:@blake.regalia/belt@^0.15.0';
+
+import {SchemaHandler} from './apollo.ts';
 import {GraphqlRewriter} from './rewriter.ts';
 import {exec_plan} from './sparql.ts';
 
-import {Application, Router, oakCors, oderac, parseCli, parseContentType} from '../deps.ts';
-import { SchemaHandler, handle_schema_request } from './apollo.ts';
 
 const SX_MIME_JSON = 'application/json';
 const SX_MIME_GRAPHQL_RESPONSE = 'application/graphql-response+json';
@@ -22,7 +29,13 @@ const close_res = (d_res: OakResponse, xc_code: number, w_body: OakResponseBody)
 const H_OPT_ALIASES = {
 	c: 'context',
 	s: 'schema',
-	p: 'port,'
+	p: 'port',
+};
+
+const H_OPT_DESC = {
+	c: '[required] path to JSON-LD context file',
+	s: '[required] path to GraphQL schema file',
+	p: '[optional] port number to bind server',
 };
 
 const h_flags = parseCli(Deno.args, {
@@ -34,17 +47,18 @@ const h_flags = parseCli(Deno.args, {
 	},
 });
 
-if(h_flags['help'] || h_flags['h']) {
-	console.log([
-		'Options:',
-		...oderac(H_OPT_ALIASES, (si_alias, si_flag) => `  --${si_flag} or -${si_alias} [VALUE]`).join('\n'),
-	]);
-	Deno.exit(0);
-}
-
 const sr_jsonld_context = h_flags['context'] || h_flags['c'] || '';
 const sr_graphql_schema = h_flags['schema'] || h_flags['s'] || '';
 const n_port = parseInt(h_flags['port'] || h_flags['p'] || '3001');
+
+if(h_flags['help'] || h_flags['h'] || !sr_jsonld_context || !sr_graphql_schema) {
+	console.log(
+		`Usage: vr serve [OPTIONS]\n`
+		+`\nOptions:\n${oderac(H_OPT_ALIASES, (si_alias, si_flag) => `  -${si_alias}, --${si_flag} ${'p' === si_alias? 'VALUE': 'PATH'}`.padEnd(22, ' ')+H_OPT_DESC[si_alias]).join('\n')}\n`
+		+`\nExample: vr serve -c res/context.json -s res/schema.graphql`
+	);
+	Deno.exit(0);
+}
 
 const sx_jsonld_context = sr_jsonld_context? Deno.readTextFileSync(sr_jsonld_context): '';
 const sx_graphql_schema = sr_graphql_schema? Deno.readTextFileSync(sr_graphql_schema): '';
@@ -59,6 +73,12 @@ const k_rewriter = await GraphqlRewriter.create({
 const y_apollo = new SchemaHandler(sx_graphql_schema);
 
 const y_router = new Router()
+	.get('/', async(y_ctx) => {
+		await send(y_ctx, y_ctx.request.url.pathname, {
+			root: `${Deno.cwd()}/public`,
+			index: 'index.html',
+		});
+	})
 	.post('/graphql', async({request:d_req, response:d_res}) => {
 		// parse content type from request header
 		const g_type = parseContentType(d_req.headers.get('content-type') || 'text/html');
@@ -122,12 +142,13 @@ const y_router = new Router()
 		catch(e_schema) {}
 
 		// translate query to sparql plan
-		const g_plan = k_rewriter.rewrite(sx_query);
+		const g_plan = k_rewriter.rewrite(sx_query, g_value.variables || {});
 
 		// errors
 		if(g_plan.errors.length) {
 			// respond
 			d_res.body = {
+				data: null,
 				errors: g_plan.errors,
 			};
 
@@ -138,15 +159,22 @@ const y_router = new Router()
 		// execute sparql plan
 		const {
 			bindings: h_output,
+			errors: a_errors,
 			query: sx_sparql,
 		} = await exec_plan(g_plan);
 
 		// return output bindings
-		d_res.body = {
-			data: h_output,
-			errors: [],
-			sparql: sx_sparql,
-		};
+		d_res.body = a_errors.length
+			? {
+				data: null,
+				errors: a_errors,
+				sparql: sx_sparql,
+			}
+			: {
+				data: h_output,
+				errors: [],
+				sparql: sx_sparql,
+			};
 	});
 
 y_app.use(oakCors());
@@ -157,5 +185,5 @@ y_app.listen({
 	port: n_port,
 });
 
-
+console.log(`Listening on port ${n_port}`);
 

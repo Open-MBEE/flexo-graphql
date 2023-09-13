@@ -1,4 +1,4 @@
-import {ApolloServer} from '../deps.ts';
+import {ApolloServer} from 'npm:apollo-server@^3.12.0';
 
 export class SchemaHandler {
 	protected _y_server: ApolloServer;

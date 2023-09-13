@@ -1,38 +1,16 @@
 {
-  "name": "mms5-graphql",
-  "version": "1.0.0",
-  "description": "",
-  "main": "src/main.ts",
-  "type": "module",
+  "name": "flexo-graphql-dev",
+  "private": "true",
+  "description": "This package.json is only for managing development tools/dependencies for the flexo-graphql project",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev-update-check": "ncu",
+    "dev-upgrade": "ncu -u && yarn install"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "devDependencies": {
-    "@blake.regalia/eslint-config-elite": "^0.3.2",
+    "@blake.regalia/eslint-config-elite": "^0.3.3",
     "@blake.regalia/tsconfig": "^0.1.2",
-    "@types/node": "^20.5.4",
-    "@typescript-eslint/parser": "^6.4.0",
-    "eslint": "^8.47.0",
-    "eslint-plugin-i": "^2.28.0-2",
-    "ts-node": "^10.9.1",
-    "typescript": "^5.1.6"
-  },
-  "dependencies": {
-    "@apollo/client": "^3.8.1",
-    "@apollo/server": "^4.9.1",
-    "@blake.regalia/belt": "^0.15.0",
-    "@graphql-tools/schema": "^10.0.0",
-    "@rdfjs/data-model": "^2.0.1",
-    "@rdfjs/types": "^1.1.0",
-    "@types/sparqljs": "^3.1.4",
-    "apollo-server": "^3.12.0",
-    "cd": "^0.3.3",
-    "graphql": "^16.8.0",
-    "graphy": "^4.3.6",
-    "mms5-graphql": "/Users/bregalia/mms5/mms5-graphql",
-    "sparqljs": "^3.7.1"
+    "@typescript-eslint/parser": "^6.7.0",
+    "eslint": "^8.49.0",
+    "typescript": "^5.2.2"
   }
 }

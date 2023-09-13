@@ -1,5 +1,35 @@
 # these commands can be run using the `vr` cli tool: https://velociraptor.run
 scripts:
-  install: deno cache --reload --lock=deno.lock deps.ts
-  update: udd deps.ts && deno cache --lock=deno.lock --lock-write deps.ts
-  start: deno run --allow-net src/main.ts
+  install: deno cache --reload --lock=deno.lock src/*.ts
+  update: udd src/*.ts && deno cache --lock=deno.lock --lock-write src/*.ts
+  serve: deno run --allow-net --allow-read --allow-env src/server.ts
+  generate: |
+    # velociraptor appends the arg, so a function is used to usher it into a variable
+    :() {
+    SCHEMA="$1"
+
+    # assertion
+    if [ -z "$SCHEMA" ]; then echo "Usage: vr generate SCHEMA_FILE"; exit 1; fi
+
+    # output directory
+    mkdir -p build/
+
+    # generate the queries
+    deno run src/gen-client.ts < $SCHEMA > build/queries.graphql
+
+    # copy schema to build directory
+    cp $SCHEMA build/
+
+    # shell heredoc used for toml string
+    cat << EOF | sed 's/^ *//g' > build/pyproject.toml
+      [tool.ariadne-codegen]
+      schema_path = "schema.graphql"
+      queries_path = "queries.graphql"
+    EOF
+
+    # execute codegen from build directory
+    cd build/
+    ariadne-codegen
+
+    # close function scope and call it
+    };:
