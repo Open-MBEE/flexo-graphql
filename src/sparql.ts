@@ -171,7 +171,8 @@ function rebind(
 	}
 }
 
-export async function exec_plan(g_plan: SparqlPlan): Promise<{
+
+export async function exec_plan(g_plan: SparqlPlan, p_endpoint: string): Promise<{
 	bindings: Dict<JsonValue>;
 	errors: EvalError[];
 	query: string;
@@ -190,7 +191,7 @@ export async function exec_plan(g_plan: SparqlPlan): Promise<{
 		where: g_plan.where,
 	});
 
-	const d_res = await fetch('http://localhost:7200/repositories/jama-msr', {
+	const d_res = await fetch(p_endpoint, {
 		method: 'POST',
 		body: new URLSearchParams({
 			query: sx_sparql,
@@ -200,6 +201,16 @@ export async function exec_plan(g_plan: SparqlPlan): Promise<{
 			'Accept': 'application/sparql-results+json',
 		},
 	});
+
+	if(!d_res.ok) {
+		return {
+			bindings: {},
+			errors: [{
+				message: await d_res.text(),
+			}],
+			query: sx_sparql,
+		};
+	}
 
 	const g_response = await d_res.json() as {
 		results: {

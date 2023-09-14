@@ -5,7 +5,7 @@ import type {ResponseBody as OakResponseBody} from 'https://deno.land/x/oak@v12.
 import {parse as parseCli} from 'https://deno.land/std@0.201.0/flags/mod.ts';
 import {parse as parseContentType} from 'https://deno.land/x/content_type@1.0.1/mod.ts';
 import {oakCors} from 'https://deno.land/x/cors@v1.2.2/mod.ts';
-import {Application, Context, Router} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
+import {Application, Router} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
 import {send} from 'https://deno.land/x/oak@v12.6.1/send.ts';
 import {oderac} from 'npm:@blake.regalia/belt@^0.15.0';
 
@@ -25,6 +25,13 @@ const close_res = (d_res: OakResponse, xc_code: number, w_body: OakResponseBody)
 	d_res.status = xc_code;
 	d_res.body = w_body;
 };
+
+const P_ENDPOINT = Deno.env.get('SPARQL_ENDPOINT')!;
+
+if(!P_ENDPOINT) {
+	console.error(`Must define environment variable SPARQL_ENDPOINT`);
+	Deno.exit(1);
+}
 
 const H_OPT_ALIASES = {
 	c: 'context',
@@ -52,12 +59,12 @@ const sr_graphql_schema = h_flags['schema'] || h_flags['s'] || '';
 const n_port = parseInt(h_flags['port'] || h_flags['p'] || '3001');
 
 if(h_flags['help'] || h_flags['h'] || !sr_jsonld_context || !sr_graphql_schema) {
-	console.log(
+	console.error(
 		`Usage: vr serve [OPTIONS]\n`
 		+`\nOptions:\n${oderac(H_OPT_ALIASES, (si_alias, si_flag) => `  -${si_alias}, --${si_flag} ${'p' === si_alias? 'VALUE': 'PATH'}`.padEnd(22, ' ')+H_OPT_DESC[si_alias]).join('\n')}\n`
 		+`\nExample: vr serve -c res/context.json -s res/schema.graphql`
 	);
-	Deno.exit(0);
+	Deno.exit(h_flags['help'] || h_flags['h']? 0: 1);
 }
 
 const sx_jsonld_context = sr_jsonld_context? Deno.readTextFileSync(sr_jsonld_context): '';
@@ -72,14 +79,27 @@ const k_rewriter = await GraphqlRewriter.create({
 
 const y_apollo = new SchemaHandler(sx_graphql_schema);
 
+const sx_pattern = `/orgs/:org/repos/:repo/branches/:branch`;
+
 const y_router = new Router()
 	.get('/', async(y_ctx) => {
-		await send(y_ctx, y_ctx.request.url.pathname, {
+		const d_params = y_ctx.request.url.searchParams;
+		if(d_params.has('org') && d_params.has('repo')) {
+			return await y_ctx.response.redirect(`/orgs/${d_params.get('org')}/repos/${d_params.get('repo')}/branches/${d_params.get('branch') || 'master'}/`);
+		}
+
+		await send(y_ctx, './', {
 			root: `${Deno.cwd()}/public`,
 			index: 'index.html',
 		});
 	})
-	.post('/graphql', async({request:d_req, response:d_res}) => {
+	.get(`${sx_pattern}/`, async(y_ctx) => {
+		await send(y_ctx, './', {
+			root: `${Deno.cwd()}/public`,
+			index: 'graphiql.html',
+		});
+	})
+	.post(`${sx_pattern}/graphql`, async({request:d_req, response:d_res, params:h_params}) => {
 		// parse content type from request header
 		const g_type = parseContentType(d_req.headers.get('content-type') || 'text/html');
 
@@ -156,12 +176,15 @@ const y_router = new Router()
 			return;
 		}
 
+		// materialize endpoint URL
+		const p_endpoint = P_ENDPOINT.replace(/\$\{([^}]+)\}/g, (s_0, s_var: keyof typeof h_params) => h_params[s_var]!);
+
 		// execute sparql plan
 		const {
 			bindings: h_output,
 			errors: a_errors,
 			query: sx_sparql,
-		} = await exec_plan(g_plan);
+		} = await exec_plan(g_plan, p_endpoint);
 
 		// return output bindings
 		d_res.body = a_errors.length
