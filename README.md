@@ -3,7 +3,7 @@
 ## Requirements
 
  - [Deno](https://deno.com/)
- - [https://velociraptor.run/](Velociraptor) (script runner for Deno projects)
+ - _(optional)_ [https://velociraptor.run/](Velociraptor) (script runner for Deno projects)
 
 
 ## Install
