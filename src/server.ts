@@ -152,11 +152,15 @@ const y_router = new Router()
 
 			// apollo handled it
 			if(g_res?.data && !g_res.errors?.length) {
-				// close response
-				d_res.body = g_res;
+				// not a singular request type
+				const a_entries = Object.entries(g_res.data);
+				if(1 !== a_entries.length || null !== a_entries[0][1]) {
+					// close response
+					d_res.body = g_res;
 
-				// exit
-				return;
+					// exit
+					return;
+				}
 			}
 		}
 		catch(e_schema) {}

@@ -85,10 +85,23 @@ function rebind(
 
 			// divergent values
 			if((as_scalars.size + as_objects.size) > 1) {
-				a_errors.push({
-					message: `Multiple divergent bindings encountered; try adding the \`@many\` directive after \`${a_path.at(-1)}\` to collate results.`,
-					bindingPath: a_path.join('.'),
-				});
+				// root-level selector
+				if(1 === a_path.length) {
+					a_errors.push({
+						message: `Multiple results encountered for top-level selector; did you mean to use \`${a_path[0]}s\` instead?`,
+						bindingPath: a_path.join('.'),
+					});
+				}
+				// nested selector
+				else {
+					a_errors.push({
+						message: `Multiple divergent bindings encountered; try adding the \`@many\` directive after \`${a_path.at(-1)}\` to collate results.`,
+						bindingPath: a_path.join('.'),
+					});
+				}
+
+				// stop iterating
+				return;
 			}
 			// single scalar value
 			else if(as_scalars.size) {

@@ -265,7 +265,7 @@ export class GraphqlRewriter {
 		return factory.namedNode(this.translate(si_key).iri);
 	}
 
-	rewrite(sx_query: string, h_variables: Dict<any>): SparqlPlan {
+	rewrite(sx_query: string, h_variables: Dict<unknown>): SparqlPlan {
 		const {_h_types} = this;
 		const h_queries = _h_types['Query'].fields;
 
@@ -305,7 +305,7 @@ export class GraphqlRewriter {
 		let h_node: Dict<JsonValue> = h_root;
 
 		// prep node stack
-		const a_stack: any[] = [];
+		const a_stack: Dict<JsonValue>[] = [];
 
 		// parse query
 		let y_doc = parse(sx_query);
@@ -360,7 +360,7 @@ export class GraphqlRewriter {
 			[Kind.FIELD]: {
 				// pop when leaving
 				leave() {
-					h_node = a_stack.pop();
+					h_node = a_stack.pop()!;
 				},
 
 				// when entering...
