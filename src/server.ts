@@ -26,13 +26,6 @@ const close_res = (d_res: OakResponse, xc_code: number, w_body: OakResponseBody)
 	d_res.body = w_body;
 };
 
-const P_ENDPOINT = Deno.env.get('SPARQL_ENDPOINT')!;
-
-if(!P_ENDPOINT) {
-	console.error(`Must define environment variable SPARQL_ENDPOINT`);
-	Deno.exit(1);
-}
-
 const H_OPT_ALIASES = {
 	c: 'context',
 	s: 'schema',
@@ -65,6 +58,13 @@ if(h_flags['help'] || h_flags['h'] || !sr_jsonld_context || !sr_graphql_schema) 
 		+`\nExample: vr serve -c res/context.json -s res/schema.graphql`
 	);
 	Deno.exit(h_flags['help'] || h_flags['h']? 0: 1);
+}
+
+const P_ENDPOINT = Deno.env.get('SPARQL_ENDPOINT')!;
+
+if(!P_ENDPOINT) {
+	console.error(`Must define environment variable SPARQL_ENDPOINT`);
+	Deno.exit(1);
 }
 
 const sx_jsonld_context = sr_jsonld_context? Deno.readTextFileSync(sr_jsonld_context): '';

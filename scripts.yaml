@@ -33,3 +33,7 @@ scripts:
 
     # close function scope and call it
     };:
+envFile:
+  - .env
+env:
+  SPARQL_ENDPOINT: http://localhost:8080/orgs/${org}/repos/${repo}/branches/${branch}/

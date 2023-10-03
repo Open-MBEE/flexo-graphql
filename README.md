@@ -15,20 +15,108 @@ vr install
 
 ## Running the GraphQL server
 
+### Configure the SPARQL endpoint
+
+Define a `SPARQL_ENDPOINT` environment variable that binds a **pattern** for the URL. The server will make the following substitutions in the pattern:
+ - `${org}` -- replaced with the target `orgId` the user is querying
+ - `${repo}` -- replaced with the target `repoId` the user is querying
+ - `${branch}` -- replaced with the target `branchId` the user is querying
+
+For example:
+```bash
+# notice the use of single quotes to prevent shell substitution of ${..}
+SPARQL_ENDPOINT='http://localhost:7200/repositories/${org}-${repo}'
+```
+
+With this configuratino, a request to `https://graphql-server/orgs/mms/repos/test/branches/master` would forward a SPARQL request to `http://localhost:7200/repositories/mms-test`.
+
+
+### Run the server
+
+```
+Usage: vr serve [OPTIONS]
+
+Options:
+  -c, --context PATH  [required] path to JSON-LD context file
+  -s, --schema PATH   [required] path to GraphQL schema file
+  -p, --port VALUE    [optional] port number to bind server
+```
+
+#### Example
+
 ```sh
 vr serve -c context.json -s schema.graphql
 ```
 
 By default, the server attempts to bind to port `3001`.
 
-The GraphQL endpoint will be available (via POST requests) at: http://localhost:3001/graphql
+The GraphQL endpoint will be available (via POST requests) at: `/orgs/${org}/repos/${repo}/branches/${branch}/graphql`
 
-You can also open the following URL in your browser to access the GraphiQL interface: http://localhost:3001/
+Additionally, a GraphiQL interface is exposed at: `/orgs/${org}/repos/${repo}/branches/${branch}/`
 
 
 ## Documentation
 
 The endpoint provides schema introspection to help clients validate their queries.
+
+
+### `@filter`` directive
+
+Can be used to apply a filter on scalar values:
+
+```graphql
+{
+  item {
+    # select items where the `name` property is exactly "Batman"
+    name @filter(is: "Batman")
+  }
+}
+```
+
+The sole named argument provided to the `@filter` directive should be one of the following:
+
+| Keyword                  | Argument type | Comments                  |
+| ------------------------ | ------------- | ------------------------- |
+| is                       | String        | exact match               |
+| not                      | String        | not exact match           |
+| in                       | \[String\]    | value appears in list     |
+| notIn                    | \[String\]    | value not in list         |
+| contains                 | String        | value contains substring  |
+| notContains              | String        | _(negated)_               |
+| startsWith               | String        | value starts with string  |
+| notStartsWith            | String        | _(negated)_               |
+| endsWith                 | String        | value ends with string    |
+| notEndsWith              | String        | _(negated)_               |
+| regex                    | String        | regular expression match  |
+| notRegex                 | String        | _(negated)_               |
+| equals                   | Float         | numeric equals            |
+| notEquals                | Float         | _(negated)_               |
+| lessThan                 | Float         | numeric less than         |
+| notLessThan              | Float         | _(negated)_               |
+| greaterThan              | Float         | numeric greater than      |
+| notGreaterThan           | Float         | _(negated)_               |
+| lessThanOrEqualTo        | Float         | ...                       |
+| notLessThanOrEqualTo     | Float         | _(negated)_               |
+| greaterThanOrEqualTo     | Float         | ...                       |
+| notGreaterThanOrEqualTo  | Float         | _(negated)_               |
+
+
+### `@many` directive
+
+Tells the service where to collate results:
+
+```graphql
+{
+  pickLists {
+    # Picklist:PickListOptions is a 1:many relation
+    options: _inv_pickList @many {
+      ...on PickListOption {
+        name
+      }
+    }
+  }
+}
+```
 
 
 ## Inverse predicates
@@ -38,6 +126,10 @@ Properties that are prefixed by `_inv_` signify an incoming relationship from an
 ```graphql
 {
   user {
+    # select a user by their email
+    email @filter(is: "jdoe@ex.org")
+
+    # find items that were "createdBy" this user
     item: _inv_createdBy {
       name  # the item's name
     }
@@ -53,72 +145,17 @@ The special `_any` property can be used to select any predicate (including ones 
 ```graphql
 {
   item {
+    # `_any` is a wildcard, assign it the alias "version" in the results
     version: _any {
-      # specify the intended type using an inline fragment
+      # specify the intended type (i.e. a Version instance) using an inline fragment
       ...on Version {
-        id
+        id  # the version's id
       }
     }
   }
 }
 ```
 
-
-### `@filter`` directive
-
-Can be used to apply a filter on scalar values:
-
-```graphql
-{
-  item {
-    name @filter(is: "Batman")
-  }
-}
-```
-
-The sole named argument provided to the `@filter` directive should be one of the following:
-
-| Keyword                  | Argument type | Comments                  |
-| ------------------------ | ------------- | ------------------------- |
-| is                       | String        | exact match               |
-| not                      | String        | not exact match           |
-| in                       | \[String\]    | value appears in list     |
-| notIn                    | \[String\]    | value not in list         |
-| contains                 | String        | value contains substring  |
-| notContains              | String        |                           |
-| startsWith               | String        | value starts with string  |
-| notStartsWith            | String        |                           |
-| endsWith                 | String        | value ends with string    |
-| notEndsWith              | String        |                           |
-| regex                    | String        | regular expression match  |
-| notRegex                 | String        |                           |
-| equals                   | Float         | numeric equals            |
-| notEquals                | Float         |                           |
-| lessThan                 | Float         | numeric less than         |
-| notLessThan              | Float         |                           |
-| greaterThan              | Float         | numeric greater than      |
-| notGreaterThan           | Float         |                           |
-| lessThanOrEqualTo        | Float         |                           |
-| notLessThanOrEqualTo     | Float         |                           |
-| greaterThanOrEqualTo     | Float         |                           |
-| notGreaterThanOrEqualTo  | Float         |                           |
-
-
-### `@many` directive
-
-Tells the service where to collate results:
-
-```graphql
-{
-  pickLists {
-    options: _inv_pickList @many {
-      ...on PickListOption {
-        name
-      }
-    }
-  }
-}
-```
 
 
 ## Contributing
