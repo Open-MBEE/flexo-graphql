@@ -9,6 +9,8 @@ scripts:
   update: udd src/*.ts && deno cache --lock=deno.lock --lock-write src/*.ts
   serve: deno run --allow-net --allow-read --allow-env src/server.ts
   build-exec: deno compile --allow-net --allow-read --allow-env src/server.ts -o bin/server
+  build-docker: docker build -t openmbee/flexo-graphql --platform linux/amd64 .
+  push-docker: docker push openmbee/flexo-graphql
   generate: |
     # velociraptor appends the arg, so a function is used to usher it into a variable
     :() {
