@@ -81,6 +81,13 @@ const y_apollo = new SchemaHandler(sx_graphql_schema);
 
 const sx_pattern = `/orgs/:org/repos/:repo/branches/:branch`;
 
+async function graphiql(y_ctx) {
+	await send(y_ctx, './', {
+		root: `${Deno.cwd()}/public`,
+		index: 'graphiql.html',
+	});
+}
+
 const y_router = new Router()
 	.get('/', async(y_ctx) => {
 		const d_params = y_ctx.request.url.searchParams;
@@ -93,12 +100,8 @@ const y_router = new Router()
 			index: 'index.html',
 		});
 	})
-	.get(`${sx_pattern}/`, async(y_ctx) => {
-		await send(y_ctx, './', {
-			root: `${Deno.cwd()}/public`,
-			index: 'graphiql.html',
-		});
-	})
+	.get(`${sx_pattern}/`, graphiql)
+	.get(`${sx_pattern}/ui`, graphiql)
 	.post(`${sx_pattern}/graphql`, async({request:d_req, response:d_res, params:h_params}) => {
 		// parse content type from request header
 		const g_type = parseContentType(d_req.headers.get('content-type') || 'text/html');
