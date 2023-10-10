@@ -15,6 +15,33 @@ vr install
 
 ## Running the GraphQL server
 
+
+### Using docker
+
+Build or fetch the image:
+```sh
+docker build -t flexo-graphql .
+## OR ##
+docker pull openmbee/flexo-graphql
+```
+
+Run the container. Mount a directory to `/data` where the app can find `context.json` and `schema.graphql`:
+
+For example, if the host cwd looks like:
+```
+.
+├── README.md
+├── res
+│   ├── context.json
+│   ├── schema.graphql
+```
+
+Then the docker command to run a container mounting the `/res` directory might look like this:
+```sh
+docker run -it --rm -v $(pwd)/res:/data graphql
+```
+
+
 ### Configure the SPARQL endpoint
 
 Define a `SPARQL_ENDPOINT` environment variable that binds a **pattern** for the URL. The server will make the following substitutions in the pattern:

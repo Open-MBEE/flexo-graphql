@@ -14,4 +14,4 @@ ADD . .
 RUN deno cache src/server.ts
 
 ENTRYPOINT ["deno", "run", "--no-prompt", "--allow-env", "--allow-read", "--allow-net", "--unsafely-ignore-certificate-errors", "src/server.ts"]
-CMD ["-c", "/app/context.json", "-s", "/app/schema.graphql"]
+CMD ["-c", "/data/context.json", "-s", "/data/schema.graphql"]
