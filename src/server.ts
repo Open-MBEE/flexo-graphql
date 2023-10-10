@@ -2,7 +2,7 @@ import type {GraphqlRewriterConfig} from './rewriter.ts';
 import type {Response as OakResponse} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
 import type {ResponseBody as OakResponseBody} from 'https://deno.land/x/oak@v12.6.1/response.ts';
 
-import {parse as parseCli} from 'https://deno.land/std@0.201.0/flags/mod.ts';
+import {parse as parseCli} from 'https://deno.land/std@0.203.0/flags/mod.ts';
 import {parse as parseContentType} from 'https://deno.land/x/content_type@1.0.1/mod.ts';
 import {oakCors} from 'https://deno.land/x/cors@v1.2.2/mod.ts';
 import {Application, Router} from 'https://deno.land/x/oak@v12.6.1/mod.ts';

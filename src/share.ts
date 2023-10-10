@@ -1,5 +1,5 @@
 import type {Dict, Arrayable, JsonObject} from 'npm:@blake.regalia/belt@^0.15.0';
-import type {Pattern} from 'npm:sparqljs@^3.7.1';
+import type {Pattern} from 'npm:@types/sparqljs@^3';
 
 import {default as factory} from 'npm:@rdfjs/data-model@^1.1.0';
 

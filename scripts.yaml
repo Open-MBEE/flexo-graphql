@@ -1,8 +1,14 @@
+envFile:
+  - .env
+env:
+  SPARQL_ENDPOINT: http://localhost:8080/orgs/${org}/repos/${repo}/branches/${branch}/
+
 # these commands can be run using the `vr` cli tool: https://velociraptor.run
 scripts:
   install: deno cache --reload --lock=deno.lock src/*.ts
   update: udd src/*.ts && deno cache --lock=deno.lock --lock-write src/*.ts
   serve: deno run --allow-net --allow-read --allow-env src/server.ts
+  build-exec: deno compile --allow-net --allow-read --allow-env src/server.ts -o bin/server
   generate: |
     # velociraptor appends the arg, so a function is used to usher it into a variable
     :() {
@@ -33,7 +39,3 @@ scripts:
 
     # close function scope and call it
     };:
-envFile:
-  - .env
-env:
-  SPARQL_ENDPOINT: http://localhost:8080/orgs/${org}/repos/${repo}/branches/${branch}/

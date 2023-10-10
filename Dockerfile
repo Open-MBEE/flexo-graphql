@@ -8,12 +8,10 @@ RUN apk add tzdata &&  \
 
 EXPOSE 3001
 
-# WORKDIR /app
+WORKDIR /app
 
 ADD . .
 RUN deno cache src/server.ts
-
-# USER deno
 
 ENTRYPOINT ["deno", "run", "--no-prompt", "--allow-env", "--allow-read", "--allow-net", "--unsafely-ignore-certificate-errors", "src/server.ts"]
 CMD ["-c", "/app/context.json", "-s", "/app/schema.graphql"]

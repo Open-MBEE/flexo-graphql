@@ -4,6 +4,7 @@
 import type {BinderStruct, SparqlPlan, EvalError} from './share.ts';
 import type {Dict, JsonObject, JsonValue, Nilable} from 'npm:@blake.regalia/belt@^0.15.0';
 import type {Literal, NamedNode, Quad, Quad_Object, Quad_Predicate, Quad_Subject} from 'npm:@rdfjs/types@^1.1.0';
+import type {Pattern} from 'npm:@types/sparqljs@^3.1';
 import type {
 	ConstDirectiveNode,
 	DocumentNode,
@@ -15,7 +16,6 @@ import type {
 	ObjectTypeDefinitionNode,
 	ValueNode,
 } from 'npm:graphql@^16.8.0';
-import type {Pattern} from 'npm:sparqljs@^3.7.1';
 
 import {ode, proper} from 'npm:@blake.regalia/belt@^0.15.0';
 import {default as factory} from 'npm:@rdfjs/data-model@^1.1.0';
@@ -589,7 +589,7 @@ export class GraphqlRewriter {
 						a_bgp.push(g_property);
 
 						// save to descriptor
-						a_stack.at(-1)['__typename'] = g_target.value;
+						a_stack.at(-1)!['__typename'] = g_target.value;
 					}
 					// not variable
 					else {
@@ -653,7 +653,7 @@ export class GraphqlRewriter {
 						// many
 						if(yn_field.directives?.find(g_directive => 'many' === g_directive.name.value)) {
 							// wrap in array annotation
-							a_stack.at(-1)[si_label] = [h_descriptor];
+							a_stack.at(-1)![si_label] = [h_descriptor];
 						}
 
 
@@ -723,7 +723,7 @@ export class GraphqlRewriter {
 						}
 						// terminal scalar value
 						else {
-							a_stack.at(-1)[si_label] = g_target.value;
+							a_stack.at(-1)![si_label] = g_target.value;
 
 							// uses `@filter` directive
 							const gc_filter = yn_field.directives?.find(g => 'filter' === g.name.value);
