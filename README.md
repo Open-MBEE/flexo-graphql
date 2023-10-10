@@ -6,13 +6,6 @@
  - _(optional)_ [https://velociraptor.run/](Velociraptor) (script runner for Deno projects)
 
 
-## Install
-
-```sh
-vr install
-```
-
-
 ## Running the GraphQL server
 
 
@@ -41,8 +34,16 @@ Then the docker command to run a container mounting the `/res` directory might l
 docker run -it --rm -v $(pwd)/res:/data -e 'SPARQL_ENDPOINT=http://localhost:7200/repositories/${org}-${repo}' graphql
 ```
 
+### Without docker
 
-### Configure the SPARQL endpoint
+#### Install
+
+```sh
+vr install
+```
+
+
+#### Configure the SPARQL endpoint
 
 Define a `SPARQL_ENDPOINT` environment variable that binds a **pattern** for the URL. The server will make the following substitutions in the pattern:
  - `${org}` -- replaced with the target `orgId` the user is querying
@@ -58,7 +59,7 @@ SPARQL_ENDPOINT='http://localhost:7200/repositories/${org}-${repo}'
 With this configuratino, a request to `https://graphql-server/orgs/mms/repos/test/branches/master` would forward a SPARQL request to `http://localhost:7200/repositories/mms-test`.
 
 
-### Run the server
+#### Run the server
 
 ```
 Usage: vr serve [OPTIONS]
@@ -69,7 +70,7 @@ Options:
   -p, --port VALUE    [optional] port number to bind server
 ```
 
-#### Example
+##### Example
 
 ```sh
 vr serve -c context.json -s schema.graphql
