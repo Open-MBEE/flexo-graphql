@@ -101,7 +101,7 @@ const y_router = new Router()
 		});
 	})
 	.get(`${sx_pattern}/`, graphiql)
-	.get(`${sx_pattern}/ui`, graphiql)
+	.get(`${sx_pattern}/graphql`, graphiql)
 	.post(`${sx_pattern}/graphql`, async({request:d_req, response:d_res, params:h_params}) => {
 		// parse content type from request header
 		const g_type = parseContentType(d_req.headers.get('content-type') || 'text/html');
