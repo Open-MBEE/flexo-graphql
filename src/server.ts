@@ -183,12 +183,22 @@ const y_router = new Router()
 		// materialize endpoint URL
 		const p_endpoint = P_ENDPOINT.replace(/\$\{([^}]+)\}/g, (s_0, s_var: keyof typeof h_params) => h_params[s_var]!);
 
+		// collect all other headers
+		const h_headers = Object.fromEntries(d_req.headers.entries());
+		delete h_headers['accept'];
+		delete h_headers['content-type'];
+		delete h_headers['content-length'];
+		delete h_headers['host'];
+		delete h_headers['origin'];
+		delete h_headers['referer'];
+		delete h_headers['connection'];
+
 		// execute sparql plan
 		const {
 			bindings: h_output,
 			errors: a_errors,
 			query: sx_sparql,
-		} = await exec_plan(g_plan, p_endpoint);
+		} = await exec_plan(g_plan, p_endpoint, h_headers);
 
 		// return output bindings
 		d_res.body = a_errors.length
