@@ -4,7 +4,7 @@ import type {ObjectTypeDefinitionNode} from 'npm:graphql@^16.8.0';
 import {readAll} from 'https://deno.land/std@0.203.0/streams/read_all.ts';
 import {Kind, parse, visit} from 'npm:graphql@^16.8.0';
 
-import {A_PRIMITIVES} from './constants.ts';
+import {A_SCALARS} from './constants.ts';
 
 
 const group = (sx_decl: string, a_statements: string[]) => `${sx_decl} {${a_statements.map(s => `\n  ${s}`).join('')}\n}\n\n`;
@@ -41,7 +41,7 @@ const camel = (s_name: string) => s_name[0].toLowerCase()+s_name.slice(1);
 				const a_fragments = [];
 				for(const g_field of y_node.fields || []) {
 					if(Kind.NAMED_TYPE === g_field.type.kind) {
-						if(A_PRIMITIVES.includes(g_field.type.name.value)) {
+						if(A_SCALARS.includes(g_field.type.name.value)) {
 							a_fragments.push(g_field.name.value);
 						}
 						// else {
@@ -76,7 +76,7 @@ const camel = (s_name: string) => s_name[0].toLowerCase()+s_name.slice(1);
 						let s_predicate = 'By';
 
 						// non-primitive object reference
-						if(!A_PRIMITIVES.includes(s_type)) {
+						if(!A_SCALARS.includes(s_type)) {
 							as_queued.add(s_type);
 
 							// do not produce query

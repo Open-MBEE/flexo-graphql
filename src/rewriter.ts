@@ -1,11 +1,13 @@
 // eslint-disable-next-line @typescript-eslint/triple-slash-reference
 /// <reference path="./rdfjs.d.ts" />
 
+import type {FilterableFieldType} from './constants.ts';
 import type {BinderStruct, SparqlPlan, EvalError} from './share.ts';
 import type {Dict, JsonObject, JsonValue, Nilable} from 'npm:@blake.regalia/belt@^0.15.0';
 import type {Literal, NamedNode, Quad, Quad_Object, Quad_Predicate, Quad_Subject} from 'npm:@rdfjs/types@^1.1.0';
 import type {Pattern} from 'npm:@types/sparqljs@^3.1';
 import type {
+	ArgumentNode,
 	ConstDirectiveNode,
 	DocumentNode,
 	FieldDefinitionNode,
@@ -22,10 +24,11 @@ import {default as factory} from 'npm:@rdfjs/data-model@^1.1.0';
 import {Kind, parse, visit, BREAK} from 'npm:graphql@^16.8.0';
 import {default as jsonld} from 'npm:jsonld@^8.2.0';
 
-import {A_PRIMITIVES, P_NS_XSD} from './constants.ts';
+import {A_SCALARS, P_NS_XSD} from './constants.ts';
 import {G_RDF_TYPE} from './share.ts';
 import {transform_skip_include} from './transform-skip-include.ts';
 import {transform_variables} from './transform-variables.ts';
+import {apply_filter_args, graphql_value_to_sparqljs_arg, unwrap_field_type} from './util.ts';
 
 interface TermNode extends FieldNode {
 	term: Quad_Subject;
@@ -307,6 +310,9 @@ export class GraphqlRewriter {
 		// prep node stack
 		const a_stack: Dict<JsonValue>[] = [];
 
+		// schema definition stack
+		const a_defs = [];
+
 		// parse query
 		let y_doc = parse(sx_query);
 
@@ -372,49 +378,102 @@ export class GraphqlRewriter {
 					const si_label = yn_field.alias?.value || si_field;
 
 					// ref arguments
-					const a_arguments = yn_field.arguments;
+					const a_arguments = yn_field.arguments as ArgumentNode[];
 
-					// type check arguments
-					for(const g_arg of a_arguments || []) {
-						// ref argument name
-						const si_arg = g_arg.name.value;
+					// will be set if this field is being called as a scalar filter
+					let s_scalar_filter_type: FilterableFieldType | '' = '';
 
-						// translate
-						let p_iri: string;
-						let s_type_expected: string;
-						try {
-							({
-								iri: p_iri,
-								type: s_type_expected,
-							} = k_self.translate(si_arg));
-						}
-						catch(e_translate) {
-							return exit((e_translate as Error).message);
-						}
+					// arguments provided
+					if(a_arguments?.length) {
+						// parent is term node
+						const g_object = (a_ancestors[a_ancestors.length-2] as TermNode).object;
+						if(g_object) {
+							// get fields def
+							const h_fields = g_object.fields;
 
-						// node is not allowed
-						if('node' === s_type_expected) {
-							return exit(`Cannot use '${si_arg}' as a parameter since its corresponding value type is a node`);
-						}
-						// not unknown
-						else if('unknown' !== s_type_expected) {
-							// ref value
-							const g_value = g_arg.value;
-
-							// ref kind
-							const si_kind = g_value.kind;
-
-							// a primitive type
-							const s_type_actual = H_GRAPHQL_KINDS_MAP[si_kind as keyof typeof H_GRAPHQL_KINDS_MAP];
-							if(s_type_actual) {
-								// types do not match
-								if(s_type_actual !== s_type_expected) {
-									return exit(`Value passed to parameter '${si_arg}' is of type ${s_type_actual}, but that predicate expects a type of ${s_type_expected}`);
-								}
+							// expect field
+							const g_field = h_fields[si_field];
+							if(!g_field) {
+								return exit(`No such field '${si_field}' on type ${g_object.label}`);
 							}
-							// null, enum, list, object, or variable
+
+							// unwrap field type
+							const {
+								type: si_scalar,
+								plural: b_plural,
+							} = unwrap_field_type(g_field.type);
+
+							// scalar
+							if(A_SCALARS.includes(si_scalar as typeof A_SCALARS[number])) {
+								// // object annotation on type
+								// if(g_object.directives['object']) {
+
+								// not a flat scalar
+								if(b_plural) {
+									return exit(`Attempted to call field '${si_field}' with arguments but field type is not flat`);
+								}
+
+								// flag as scalar filter
+								s_scalar_filter_type = si_scalar as FilterableFieldType;
+
+								// }
+								// // not annotated as an object
+								// else {
+								// 	return exit(`Attempted to call field '${si_field}' with arguments but type ${g_object.label} is not annotated as an '@object'`);
+								// }
+							}
+							// not a scalar
 							else {
-								return exit(`Value passed to parameter '${si_arg}' is of kind ${si_kind}, but that kind is not yet supported`);
+								// TODO: apply as exact match filter
+								return exit(`Filtering object type '${g_object.label}' by field exact match on '${si_field}' not yet implemented`);
+							}
+						}
+					}
+
+					// not a scalar filter
+					if(!s_scalar_filter_type) {
+						// type check arguments
+						for(const g_arg of a_arguments || []) {
+							// ref argument name
+							const si_arg = g_arg.name.value;
+
+							// translate
+							let p_iri: string;
+							let s_type_expected: string;
+							try {
+								({
+									iri: p_iri,
+									type: s_type_expected,
+								} = k_self.translate(si_arg));
+							}
+							catch(e_translate) {
+								return exit((e_translate as Error).message);
+							}
+
+							// node is not allowed
+							if('node' === s_type_expected) {
+								return exit(`Cannot use '${si_arg}' as a parameter since its corresponding value type is a node`);
+							}
+							// not unknown
+							else if('unknown' !== s_type_expected) {
+								// ref value
+								const g_value = g_arg.value;
+
+								// ref kind
+								const si_kind = g_value.kind;
+
+								// a primitive type
+								const s_type_actual = H_GRAPHQL_KINDS_MAP[si_kind as keyof typeof H_GRAPHQL_KINDS_MAP];
+								if(s_type_actual) {
+									// types do not match
+									if(s_type_actual !== s_type_expected) {
+										return exit(`Value passed to parameter '${si_arg}' is of type ${s_type_actual}, but that predicate expects a type of ${s_type_expected}`);
+									}
+								}
+								// null, enum, list, object, or variable
+								else {
+									return exit(`Value passed to parameter '${si_arg}' is of kind ${si_kind}, but that kind is not yet supported`);
+								}
 							}
 						}
 					}
@@ -508,6 +567,26 @@ export class GraphqlRewriter {
 
 						// add to root bgp
 						a_bgp.push(g_triple);
+
+						// special root-level filter
+						if(a_arguments.length) {
+							// each argument
+							for(const g_arg of a_arguments) {
+								const si_arg: string = g_arg.name.value;
+
+								// symbol
+								const si_symbol_attr = next_symbol(si_arg);
+
+								// create resolved target
+								const g_target_attr = factory.variable!(`${si_symbol_attr}_value`);
+
+								// argument must be a scalar
+
+								// TODO: assert that attribute exists on object, is scalar type, and arg type matches field type
+							}
+
+							return exit(`Not allowed to use arguments on top-level '${si_field}' query yet`);
+						}
 
 						// exit
 						return;
@@ -612,7 +691,7 @@ export class GraphqlRewriter {
 							const si_object_subtype = (g_object_field_def.type as {name?: {value: string}})?.name?.value;
 
 							// not a primitive type
-							if(si_object_subtype && !A_PRIMITIVES.includes(si_object_subtype)) {
+							if(si_object_subtype && !A_SCALARS.includes(si_object_subtype)) {
 								g_reference_type = _h_types[si_object_subtype];
 							}
 						}
@@ -621,7 +700,7 @@ export class GraphqlRewriter {
 						const si_symbol = next_symbol(si_label);
 
 						// create resolved target
-						g_target = factory.variable!(`${si_symbol}_${a_selections || a_arguments?.length? 'node': 'value'}`);
+						g_target = factory.variable!(`${si_symbol}_${a_selections || (a_arguments?.length && !s_scalar_filter_type)? 'node': 'value'}`);
 
 						// save to ast node
 						(yn_field as TermNode).term = g_target;
@@ -657,8 +736,16 @@ export class GraphqlRewriter {
 						}
 
 
+						// is scalar filter
+						if(s_scalar_filter_type) {
+							// overwrite node in shape tree to use the scalar's target variable
+							a_stack.at(-1)![si_label] = g_target.value;
+
+							// apply the arguments as filter args
+							apply_filter_args(s_scalar_filter_type, a_arguments, g_target, a_where);
+						}
 						// has arguments
-						if(a_arguments?.length) {
+						else if(a_arguments?.length) {
 							// save to descriptor as node
 							h_descriptor['$iri'] = g_target.value;
 
@@ -857,35 +944,5 @@ export class GraphqlRewriter {
 			shape: h_root,
 			errors: a_errors,
 		};
-	}
-}
-
-function graphql_value_to_rdfjs_term(g_value: ValueNode): Literal {
-	if(Kind.BOOLEAN === g_value.kind) {
-		return factory.literal(g_value.value? 'true': 'false', `${P_NS_XSD}boolean`);
-	}
-	else if(Kind.INT === g_value.kind) {
-		return factory.literal(g_value.value, `${P_NS_XSD}integer`);
-	}
-	else if(Kind.STRING === g_value.kind) {
-		return factory.literal(g_value.value);
-	}
-	else {
-		return factory.literal('void', 'void://null');
-	}
-}
-
-interface NestedArray<w> {
-	[i_index: number]: w | NestedArray<w>;
-}
-
-type NestedArrayable<w> = NestedArray<w> | w;
-
-function graphql_value_to_sparqljs_arg(g_value: ValueNode): NestedArrayable<Literal> {
-	if(Kind.LIST === g_value.kind) {
-		return g_value.values.map(graphql_value_to_sparqljs_arg);
-	}
-	else {
-		return graphql_value_to_rdfjs_term(g_value);
 	}
 }

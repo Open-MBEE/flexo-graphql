@@ -1,6 +1,8 @@
 import type {GraphqlRewriterConfig} from './rewriter.ts';
-import type {Response as OakResponse, RouterContext} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
+import type {Response as OakResponse, Request as OakRequest, RouterContext} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
 import type {ResponseBody as OakResponseBody} from 'https://deno.land/x/oak@v12.6.1/response.ts';
+
+import type {ASTNode} from 'npm:graphql@^16.8.0';
 
 import {parse as parseCli} from 'https://deno.land/std@0.203.0/flags/mod.ts';
 import {parse as parseContentType} from 'https://deno.land/x/content_type@1.0.1/mod.ts';
@@ -9,9 +11,13 @@ import {Application, Router} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
 import {send} from 'https://deno.land/x/oak@v12.6.1/send.ts';
 import {oderac} from 'npm:@blake.regalia/belt@^0.15.0';
 
+import {parse, print} from 'npm:graphql@^16.8.0';
+
 import {SchemaHandler} from './apollo.ts';
 import {GraphqlRewriter} from './rewriter.ts';
 import {exec_plan} from './sparql.ts';
+import {transform_add_object_filters} from './transform-add-object-filters.ts';
+import {transform_add_scalar_filters} from './transform-add-scalar-filters.ts';
 
 
 const SX_MIME_JSON = 'application/json';
@@ -68,17 +74,26 @@ if(!P_ENDPOINT) {
 }
 
 const sx_jsonld_context: string = sr_jsonld_context? Deno.readTextFileSync(sr_jsonld_context): '';
-const sx_graphql_schema: string = sr_graphql_schema? Deno.readTextFileSync(sr_graphql_schema): '';
+const sx_graphql_schema_input: string = sr_graphql_schema? Deno.readTextFileSync(sr_graphql_schema): '';
 
 const k_rewriter = await GraphqlRewriter.create({
-	schema: sx_graphql_schema,
+	schema: sx_graphql_schema_input,
 	context: (JSON.parse(sx_jsonld_context) as {
 		'@context': GraphqlRewriterConfig['context'];
 	})['@context'],
 });
 
-const y_apollo = new SchemaHandler(sx_graphql_schema);
+// transform input schema by adding filter functions for scalar types
+const y_doc_schema_input = parse(sx_graphql_schema_input);
+const y_doc_schema_transformed = transform_add_scalar_filters(
+	transform_add_object_filters(y_doc_schema_input)
+) as ASTNode;
+const sx_graphql_schema_transformed = print(y_doc_schema_transformed) as string;
 
+// instantiate apollo server
+const y_apollo = new SchemaHandler(sx_graphql_schema_transformed);
+
+// route pattern
 const sx_pattern = `/orgs/:org/repos/:repo/branches/:branch`;
 
 async function graphiql(y_ctx: RouterContext<string>) {
@@ -86,6 +101,19 @@ async function graphiql(y_ctx: RouterContext<string>) {
 		root: `${Deno.cwd()}/public`,
 		index: 'graphiql.html',
 	});
+}
+
+function scrub_headers(d_req: OakRequest) {
+	const h_headers = Object.fromEntries(d_req.headers.entries() as IterableIterator<[string, string]>);
+	delete h_headers['accept'];
+	delete h_headers['content-type'];
+	delete h_headers['content-length'];
+	delete h_headers['host'];
+	delete h_headers['origin'];
+	delete h_headers['referer'];
+	delete h_headers['connection'];
+
+	return h_headers;
 }
 
 const y_router = new Router()
@@ -99,6 +127,40 @@ const y_router = new Router()
 			root: `${Deno.cwd()}/public`,
 			index: 'index.html',
 		});
+	})
+	// for local deployment, proxy the login
+	.get('/login', async({request:d_req, response:d_res}) => {
+		const p_login = Object.assign(new URL(P_ENDPOINT as string), {
+			pathname: '/login',
+			search: '',
+		})+'';
+
+		// capture headers
+		const h_headers = scrub_headers(d_req);
+
+		// abort after a few seconds
+		const d_controller = new AbortController();
+		setTimeout(() => {
+			d_controller.abort();
+		}, 2e3);
+
+		// check for login
+		try {
+			const d_fetch = await fetch(p_login, {
+				headers: h_headers,
+				signal: d_controller.signal,
+			});
+
+			// forward server response to client
+			Object.assign(d_res, {
+				headers: d_fetch.headers,
+				body: d_fetch.body,
+				status: d_fetch.status,
+			});
+		}
+		catch(e_login) {
+			d_res.status = 204;
+		}
 	})
 	.get(`${sx_pattern}/`, graphiql)
 	.get(`${sx_pattern}/graphql`, graphiql)
@@ -187,14 +249,7 @@ const y_router = new Router()
 		const p_endpoint: string = P_ENDPOINT.replace(/\$\{([^}]+)\}/g, (s_0, s_var: keyof typeof h_params) => h_params[s_var]!);
 
 		// collect all other headers
-		const h_headers = Object.fromEntries(d_req.headers.entries() as IterableIterator<[string, string]>);
-		delete h_headers['accept'];
-		delete h_headers['content-type'];
-		delete h_headers['content-length'];
-		delete h_headers['host'];
-		delete h_headers['origin'];
-		delete h_headers['referer'];
-		delete h_headers['connection'];
+		const h_headers = scrub_headers(d_req);
 
 		// execute sparql plan
 		const {

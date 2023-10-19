@@ -206,12 +206,10 @@ export async function exec_plan(g_plan: SparqlPlan, p_endpoint: string, h_header
 
 	const d_res = await fetch(p_endpoint, {
 		method: 'POST',
-		body: new URLSearchParams({
-			query: sx_sparql,
-		}),
+		body: sx_sparql,
 		headers: {
 			...h_headers,
-			'Content-Type': 'application/x-www-form-urlencoded',
+			'Content-Type': 'application/sparql-query',
 			'Accept': 'application/sparql-results+json',
 		},
 	});
