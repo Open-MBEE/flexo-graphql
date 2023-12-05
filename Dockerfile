@@ -10,7 +10,8 @@ EXPOSE 3001
 
 WORKDIR /app
 
-ADD . .
+COPY public src *.lock *.json *.yaml *.properties ./
+
 RUN deno cache src/server.ts
 
 ENTRYPOINT ["deno", "run", "--no-prompt", "--allow-env", "--allow-read", "--allow-net", "--unsafely-ignore-certificate-errors", "src/server.ts"]
