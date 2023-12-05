@@ -1,8 +1,8 @@
 import type {GraphqlRewriterConfig} from './rewriter.ts';
-import type {Response as OakResponse} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
+import type {Response as OakResponse, RouterContext} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
 import type {ResponseBody as OakResponseBody} from 'https://deno.land/x/oak@v12.6.1/response.ts';
 
-import {parse as parseCli} from 'https://deno.land/std@0.201.0/flags/mod.ts';
+import {parse as parseCli} from 'https://deno.land/std@0.203.0/flags/mod.ts';
 import {parse as parseContentType} from 'https://deno.land/x/content_type@1.0.1/mod.ts';
 import {oakCors} from 'https://deno.land/x/cors@v1.2.2/mod.ts';
 import {Application, Router} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
@@ -49,7 +49,7 @@ const h_flags = parseCli(Deno.args, {
 
 const sr_jsonld_context = h_flags['context'] || h_flags['c'] || '';
 const sr_graphql_schema = h_flags['schema'] || h_flags['s'] || '';
-const n_port = parseInt(h_flags['port'] || h_flags['p'] || '3001');
+const n_port = parseInt((h_flags['port'] || h_flags['p'] || '3001') as string);
 
 if(h_flags['help'] || h_flags['h'] || !sr_jsonld_context || !sr_graphql_schema) {
 	console.error(
@@ -67,8 +67,8 @@ if(!P_ENDPOINT) {
 	Deno.exit(1);
 }
 
-const sx_jsonld_context = sr_jsonld_context? Deno.readTextFileSync(sr_jsonld_context): '';
-const sx_graphql_schema = sr_graphql_schema? Deno.readTextFileSync(sr_graphql_schema): '';
+const sx_jsonld_context: string = sr_jsonld_context? Deno.readTextFileSync(sr_jsonld_context): '';
+const sx_graphql_schema: string = sr_graphql_schema? Deno.readTextFileSync(sr_graphql_schema): '';
 
 const k_rewriter = await GraphqlRewriter.create({
 	schema: sx_graphql_schema,
@@ -80,6 +80,13 @@ const k_rewriter = await GraphqlRewriter.create({
 const y_apollo = new SchemaHandler(sx_graphql_schema);
 
 const sx_pattern = `/orgs/:org/repos/:repo/branches/:branch`;
+
+async function graphiql(y_ctx: RouterContext<string>) {
+	await send(y_ctx, './', {
+		root: `${Deno.cwd()}/public`,
+		index: 'graphiql.html',
+	});
+}
 
 const y_router = new Router()
 	.get('/', async(y_ctx) => {
@@ -93,12 +100,8 @@ const y_router = new Router()
 			index: 'index.html',
 		});
 	})
-	.get(`${sx_pattern}/`, async(y_ctx) => {
-		await send(y_ctx, './', {
-			root: `${Deno.cwd()}/public`,
-			index: 'graphiql.html',
-		});
-	})
+	.get(`${sx_pattern}/`, graphiql)
+	.get(`${sx_pattern}/graphql`, graphiql)
 	.post(`${sx_pattern}/graphql`, async({request:d_req, response:d_res, params:h_params}) => {
 		// parse content type from request header
 		const g_type = parseContentType(d_req.headers.get('content-type') || 'text/html');
@@ -181,14 +184,24 @@ const y_router = new Router()
 		}
 
 		// materialize endpoint URL
-		const p_endpoint = P_ENDPOINT.replace(/\$\{([^}]+)\}/g, (s_0, s_var: keyof typeof h_params) => h_params[s_var]!);
+		const p_endpoint: string = P_ENDPOINT.replace(/\$\{([^}]+)\}/g, (s_0, s_var: keyof typeof h_params) => h_params[s_var]!);
+
+		// collect all other headers
+		const h_headers = Object.fromEntries(d_req.headers.entries() as IterableIterator<[string, string]>);
+		delete h_headers['accept'];
+		delete h_headers['content-type'];
+		delete h_headers['content-length'];
+		delete h_headers['host'];
+		delete h_headers['origin'];
+		delete h_headers['referer'];
+		delete h_headers['connection'];
 
 		// execute sparql plan
 		const {
 			bindings: h_output,
 			errors: a_errors,
 			query: sx_sparql,
-		} = await exec_plan(g_plan, p_endpoint);
+		} = await exec_plan(g_plan, p_endpoint, h_headers);
 
 		// return output bindings
 		d_res.body = a_errors.length

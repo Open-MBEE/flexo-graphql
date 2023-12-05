@@ -2,7 +2,7 @@ import type {BinderStruct, EvalError, SparqlPlan} from './share.ts';
 import type {Dict, JsonObject, JsonValue} from 'npm:@blake.regalia/belt@^0.15.0';
 
 import {ode} from 'npm:@blake.regalia/belt@^0.15.0';
-import {default as sparqljs} from 'npm:sparqljs@3.7.1';
+import {default as sparqljs} from 'npm:sparqljs@^3';
 
 import {P_NS_BASE, P_NS_DEF, P_NS_RDF, P_NS_XSD} from './constants.ts';
 
@@ -185,7 +185,7 @@ function rebind(
 }
 
 
-export async function exec_plan(g_plan: SparqlPlan, p_endpoint: string): Promise<{
+export async function exec_plan(g_plan: SparqlPlan, p_endpoint: string, h_headers: Dict): Promise<{
 	bindings: Dict<JsonValue>;
 	errors: EvalError[];
 	query: string;
@@ -210,6 +210,7 @@ export async function exec_plan(g_plan: SparqlPlan, p_endpoint: string): Promise
 			query: sx_sparql,
 		}),
 		headers: {
+			...h_headers,
 			'Content-Type': 'application/x-www-form-urlencoded',
 			'Accept': 'application/sparql-results+json',
 		},

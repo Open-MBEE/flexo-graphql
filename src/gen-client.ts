@@ -1,7 +1,7 @@
 import type {Dict} from 'npm:@blake.regalia/belt@^0.15.0';
 import type {ObjectTypeDefinitionNode} from 'npm:graphql@^16.8.0';
 
-import {readAll} from 'https://deno.land/std@0.201.0/streams/read_all.ts';
+import {readAll} from 'https://deno.land/std@0.203.0/streams/read_all.ts';
 import {Kind, parse, visit} from 'npm:graphql@^16.8.0';
 
 import {A_PRIMITIVES} from './constants.ts';
