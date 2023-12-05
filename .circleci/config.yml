@@ -10,7 +10,7 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Deno Test and Coverage Report
+          name: Deno Install
           command: |
             deno cache --reload --lock=deno.lock src/*.ts
       - persist_to_workspace:
