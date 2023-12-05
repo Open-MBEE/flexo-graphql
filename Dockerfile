@@ -1,10 +1,12 @@
 FROM denoland/deno:alpine-1.37.1
+USER deno
 
 RUN apk add tzdata &&  \
     adduser deno users && \
     cp /usr/share/zoneinfo/America/Los_Angeles /etc/localtime && \
     echo "America/Los_Angeles" > /etc/timezone && \
-    apk del tzdata
+    apk del tzdata && \
+    rm -rf /etc/apk/cache/*
 
 EXPOSE 3001
 
