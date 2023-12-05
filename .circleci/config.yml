@@ -12,15 +12,13 @@ jobs:
       - run:
           name: Deno Test and Coverage Report
           command: |
-            deno cache --reload --lock=deno.lock cli.ts 
-            deno test --coverage=cov_profile
-            deno coverage cov_profile --lcov --output=cov_profile.lcov
+            deno cache --reload --lock=deno.lock src/*.ts
       - persist_to_workspace:
           root: /home/circleci/
           paths:
             - flexo-graphql
       - store_artifacts:
-          path: /home/circleci/cov_profile
+          path: /home/circleci/flexo-graphql
   scan:
     executor:
       name: docker/docker
