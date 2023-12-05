@@ -10,7 +10,7 @@ EXPOSE 3001
 
 WORKDIR /app
 
-COPY public src *.lock *.json *.yaml *.properties ./
+COPY public src node_modules *.lock *.json *.yaml *.properties ./
 
 RUN deno cache src/server.ts
 
