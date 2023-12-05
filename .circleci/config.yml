@@ -1,0 +1,46 @@
+version: 2.1
+orbs:
+  docker: circleci/docker@2.1.1
+  sonarcloud: sonarsource/sonarcloud@2.0.0
+jobs:
+  test:
+    docker:
+      - image: denoland/deno:1.38.3
+    working_directory: /home/circleci/flexo-graphql
+    steps:
+      - checkout
+      - run:
+          name: Deno Install
+          command: |
+            deno cache --reload --lock=deno.lock src/*.ts
+      - persist_to_workspace:
+          root: /home/circleci/
+          paths:
+            - flexo-graphql
+      - store_artifacts:
+          path: /home/circleci/flexo-graphql
+  scan:
+    executor:
+      name: docker/docker
+    working_directory: /home/circleci/flexo-graphql
+    steps:
+      - attach_workspace:
+          at: /home/circleci/
+      - sonarcloud/scan
+workflows:
+  version: 2
+  test:
+    jobs:
+      - test:
+          post-steps:
+            - persist_to_workspace:
+                root: /home/circleci/
+                paths:
+                  - flexo-graphql
+          context:
+            - DockerHub
+      - scan:
+          requires:
+            - test
+          context:
+            - SonarCloud
