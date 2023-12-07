@@ -3,7 +3,7 @@ orbs:
   docker: circleci/docker@2.1.1
   sonarcloud: sonarsource/sonarcloud@2.0.0
 jobs:
-  test:
+  build:
     docker:
       - image: denoland/deno:1.38.3
     working_directory: /home/circleci/flexo-graphql
@@ -29,9 +29,9 @@ jobs:
       - sonarcloud/scan
 workflows:
   version: 2
-  test:
+  build_and_scan:
     jobs:
-      - test:
+      - build:
           post-steps:
             - persist_to_workspace:
                 root: /home/circleci/
@@ -41,6 +41,6 @@ workflows:
             - DockerHub
       - scan:
           requires:
-            - test
+            - build
           context:
             - SonarCloud
