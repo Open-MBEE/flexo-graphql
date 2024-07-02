@@ -1,7 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/triple-slash-reference
 /// <reference path="./rdfjs.d.ts" />
 
-import type {FilterableFieldType} from './constants.ts';
+import type {FilterableFieldType, ScalarType} from './constants.ts';
 import type {BinderStruct, SparqlPlan, EvalError} from './share.ts';
 import type {Dict, JsonObject, JsonValue, Nilable} from 'npm:@blake.regalia/belt@^0.15.0';
 import type {Literal, NamedNode, Quad, Quad_Object, Quad_Predicate, Quad_Subject} from 'npm:@rdfjs/types@^1.1.0';
@@ -310,6 +310,14 @@ export class GraphqlRewriter {
 		// prep node stack
 		const a_stack: Dict<JsonValue>[] = [];
 
+		// replaces the current node in the stack at the specified key using a replacer callback
+		const replace_shape_node = <
+			w_replacement extends JsonValue,
+		>(si_key: string, w_replacer: w_replacement | ((w_current: JsonValue) => w_replacement)): w_replacement => {
+			const w_node = a_stack.at(-1)!;
+			return w_node[si_key] = ('function' === typeof w_replacer? w_replacer(w_node[si_key]): w_replacer) as w_replacement;
+		};
+
 		// schema definition stack
 		const a_defs = [];
 
@@ -371,14 +379,137 @@ export class GraphqlRewriter {
 
 				// when entering...
 				enter(yn_field, si_key, z_parent, a_path, a_ancestors) {
-					// field name
+					// ref field name
 					const si_field = yn_field.name.value;
 
-					// alias
+					// ref alias
 					const si_label = yn_field.alias?.value || si_field;
 
 					// ref arguments
 					const a_arguments = yn_field.arguments as ArgumentNode[];
+
+
+					// prep descriptor object
+					const h_descriptor: JsonObject = {};
+
+					// self node reference (defaults to descriptor object)
+					h_node[si_label] = h_descriptor;
+
+					// root-level selector
+					if(a_ancestors.length <= 4) {
+						// find in schema
+						const g_def = h_queries[si_field];
+						if(!g_def) return exit(`No such root query "${si_field}". Expected one of: [${Object.keys(h_queries).map(s => `"${s}"`).join(', ')}]`);
+
+						// unwrap field type
+						const {
+							plurality: a_plurality,
+							type: si_field_type,
+						} = unwrap_field_type(g_def.type);
+
+						// is single-level plural; wrap descriptor in array annotation
+						const b_plural = 1 === a_plurality.length;
+						if(b_plural) {
+							h_node[si_label] = [h_descriptor];
+						}
+						// multi-level plural
+						else if(a_plurality.length > 1) {
+							return exit(`Nested list types not supported. Root type definition node in Query object key '${si_field}'`);
+						}
+
+						// not found
+						const g_object_type = _h_types[si_field_type];
+						if(!g_object_type) {
+							return exit(`Fatal error; no type definition was found for ${si_field_type}`);
+						}
+
+						// symbol
+						const si_symbol = next_symbol(`${si_label}_node`);
+
+						// subject node
+						const g_subject = factory.variable!(si_symbol);
+
+						// save to descriptor
+						h_descriptor['$iri'] = si_symbol;
+
+						// push current node to stack
+						a_stack.push(h_node);
+
+						// set descriptor as new node
+						h_node = h_descriptor;
+
+						// save subject term and object node to ast node
+						Object.assign(yn_field as TermNode, {
+							term: g_subject,
+							object: g_object_type,
+						});
+
+						// derive class
+						const si_type = proper(b_plural? si_field.replace(/s$/, ''): si_field);
+						let g_type: NamedNode<string>;
+						try {
+							g_type = k_self.node(si_type);
+						}
+						catch(e_node) {
+							return exit((e_node as Error).message);
+						}
+
+						// create triple pattern
+						const g_triple = factory.quad(g_subject, G_RDF_TYPE, g_type);
+
+						// add to root bgp
+						a_bgp.push(g_triple);
+
+						// special root-level filter
+						if(a_arguments.length) {
+							// // each argument
+							// for(const g_arg of a_arguments) {
+							// 	const si_arg: string = g_arg.name.value;
+
+							// 	// symbol
+							// 	const si_symbol_attr = next_symbol(si_arg);
+
+							// 	// create resolved target
+							// 	const g_target_attr = factory.variable!(`${si_symbol_attr}_value`);
+
+							// 	// argument must be a scalar
+
+							// 	// TODO: assert that attribute exists on object, is scalar type, and arg type matches field type
+							// }
+
+							return exit(`Not allowed to use arguments on top-level '${si_field}' query yet`);
+						}
+
+						// exit
+						return;
+					}
+
+
+					// find closest field ancestor
+					let g_subject!: Quad_Subject;
+					let g_object_type!: ObjectNode | null;
+					for(let i_ancestor=a_ancestors.length-1; i_ancestor>=0; i_ancestor--) {
+						const w_ancestor = a_ancestors[i_ancestor] as TermNode | TermFragment;
+
+						// field
+						if(Kind.FIELD === w_ancestor.kind || Kind.INLINE_FRAGMENT === w_ancestor.kind) {
+							// select it as subject node
+							g_subject = w_ancestor.term;
+
+							// update object type
+							g_object_type = (w_ancestor as TermNode).object || null;
+
+							// take closest
+							break;
+						}
+					}
+
+					// no subject
+					if(!g_subject) {
+						debugger;
+						throw new Error(`Missing subject node`);
+					}
+
 
 					// will be set if this field is being called as a scalar filter
 					let s_scalar_filter_type: FilterableFieldType | '' = '';
@@ -386,30 +517,30 @@ export class GraphqlRewriter {
 					// arguments provided
 					if(a_arguments?.length) {
 						// parent is term node
-						const g_object = (a_ancestors[a_ancestors.length-2] as TermNode).object;
-						if(g_object) {
+						// const g_object = (a_ancestors[a_ancestors.length-2] as TermNode).object;
+						if(g_object_type) {
 							// get fields def
-							const h_fields = g_object.fields;
+							const h_fields = g_object_type.fields;
 
 							// expect field
 							const g_field = h_fields[si_field];
 							if(!g_field) {
-								return exit(`No such field '${si_field}' on type ${g_object.label}`);
+								return exit(`No such field '${si_field}' on type ${g_object_type.label}`);
 							}
 
 							// unwrap field type
 							const {
 								type: si_scalar,
-								plural: b_plural,
+								plurality: a_plurality,
 							} = unwrap_field_type(g_field.type);
 
 							// scalar
-							if(A_SCALARS.includes(si_scalar as typeof A_SCALARS[number])) {
+							if(A_SCALARS.includes(si_scalar as ScalarType)) {
 								// // object annotation on type
 								// if(g_object.directives['object']) {
 
 								// not a flat scalar
-								if(b_plural) {
+								if(a_plurality.length) {
 									return exit(`Attempted to call field '${si_field}' with arguments but field type is not flat`);
 								}
 
@@ -425,7 +556,7 @@ export class GraphqlRewriter {
 							// not a scalar
 							else {
 								// TODO: apply as exact match filter
-								return exit(`Filtering object type '${g_object.label}' by field exact match on '${si_field}' not yet implemented`);
+								return exit(`Filtering object type '${g_object_type.label}' by field exact match on '${si_field}' not yet implemented`);
 							}
 						}
 					}
@@ -478,144 +609,6 @@ export class GraphqlRewriter {
 						}
 					}
 
-					// prep descriptor object
-					const h_descriptor: JsonObject = {};
-
-					// self node reference (defaults to descriptor object)
-					h_node[si_label] = h_descriptor;
-
-					// root-level selector
-					if(a_ancestors.length <= 4) {
-						// prep plurality flag
-						let b_plural = false;
-
-						// find in schema
-						const g_def = h_queries[si_field];
-
-						// not found
-						if(!g_def) {
-							return exit(`No such root query "${si_field}". Expected one of: [${Object.keys(h_queries).map(s => `"${s}"`).join(', ')}]`);
-						}
-
-						// ref type def node
-						let g_def_type = g_def.type;
-
-						// unwrap non-null type
-						if(Kind.NON_NULL_TYPE === g_def_type.kind) g_def_type = g_def_type.type;
-
-						// is list
-						if(Kind.LIST_TYPE === g_def_type.kind) {
-							b_plural = true;
-
-							// wrap descriptor in array annotation
-							h_node[si_label] = [h_descriptor];
-
-							// unwrap list
-							g_def_type = g_def_type.type;
-
-							// unwrap non-null type
-							if(Kind.NON_NULL_TYPE === g_def_type.kind) g_def_type = g_def_type.type;
-						}
-
-						// should be named type
-						if(Kind.NAMED_TYPE !== g_def_type.kind) {
-							return exit(`Unable to process root type definition node in Query object type for key '${si_field}'`);
-						}
-
-						// ref field type name
-						const si_field_type = g_def_type.name.value;
-
-						// not found
-						const g_object_type = _h_types[si_field_type];
-						if(!g_object_type) {
-							return exit(`Fatal error; no type definition was found for ${si_field_type}`);
-						}
-
-						// symbol
-						const si_symbol = next_symbol(`${si_label}_node`);
-
-						// subject node
-						const g_subject = factory.variable!(si_symbol);
-
-						// save to descriptor
-						h_descriptor['$iri'] = si_symbol;
-
-						// push current node to stack
-						a_stack.push(h_node);
-
-						// set descriptor as new node
-						h_node = h_descriptor;
-
-						// save subject term and object node to ast node
-						Object.assign(yn_field as TermNode, {
-							term: g_subject,
-							object: g_object_type,
-						});
-
-						// derive class
-						const si_type = proper(b_plural? si_field.replace(/s$/, ''): si_field);
-						let g_type: NamedNode<string>;
-						try {
-							g_type = k_self.node(si_type);
-						}
-						catch(e_node) {
-							return exit((e_node as Error).message);
-						}
-
-						// create triple pattern
-						const g_triple = factory.quad(g_subject, G_RDF_TYPE, g_type);
-
-						// add to root bgp
-						a_bgp.push(g_triple);
-
-						// special root-level filter
-						if(a_arguments.length) {
-							// each argument
-							for(const g_arg of a_arguments) {
-								const si_arg: string = g_arg.name.value;
-
-								// symbol
-								const si_symbol_attr = next_symbol(si_arg);
-
-								// create resolved target
-								const g_target_attr = factory.variable!(`${si_symbol_attr}_value`);
-
-								// argument must be a scalar
-
-								// TODO: assert that attribute exists on object, is scalar type, and arg type matches field type
-							}
-
-							return exit(`Not allowed to use arguments on top-level '${si_field}' query yet`);
-						}
-
-						// exit
-						return;
-					}
-
-					// find closest field ancestor
-					let g_subject!: Quad_Subject;
-					let g_object_type!: ObjectNode | null;
-					for(let i_ancestor=a_ancestors.length-1; i_ancestor>=0; i_ancestor--) {
-						const w_ancestor = a_ancestors[i_ancestor] as TermNode | TermFragment;
-
-						// field
-						if(Kind.FIELD === w_ancestor.kind || Kind.INLINE_FRAGMENT === w_ancestor.kind) {
-							// select it as subject node
-							g_subject = w_ancestor.term;
-
-							// update object type
-							g_object_type = (w_ancestor as TermNode).object || null;
-
-							// take closest
-							break;
-						}
-					}
-
-					// no subject
-					if(!g_subject) {
-						debugger;
-						throw new Error(`Missing subject node`);
-					}
 
 
 					// push current node to stack
@@ -623,6 +616,9 @@ export class GraphqlRewriter {
 
 					// set descriptor as new node
 					h_node = h_descriptor;
+
+					// if node is set to a terminal binding
+					let z_binding: string | JsonObject[] | null = '';
 
 					// ref node's selection set property
 					const a_selections = yn_field.selectionSet?.selections;
@@ -668,7 +664,10 @@ export class GraphqlRewriter {
 						a_bgp.push(g_property);
 
 						// save to descriptor
-						a_stack.at(-1)!['__typename'] = g_target.value;
+						replace_shape_node('__typename', g_target.value);
+
+						// do not allow use of hide operator
+						z_binding = null;
 					}
 					// not variable
 					else {
@@ -690,8 +689,8 @@ export class GraphqlRewriter {
 
 							const si_object_subtype = (g_object_field_def.type as {name?: {value: string}})?.name?.value;
 
-							// not a primitive type
-							if(si_object_subtype && !A_SCALARS.includes(si_object_subtype)) {
+							// not a scalar type
+							if(si_object_subtype && !A_SCALARS.includes(si_object_subtype as ScalarType)) {
 								g_reference_type = _h_types[si_object_subtype];
 							}
 						}
@@ -704,6 +703,12 @@ export class GraphqlRewriter {
 
 						// save to ast node
 						(yn_field as TermNode).term = g_target;
+
+						// save reference type to ast node
+						if(g_reference_type) {
+							// debugger;
+							(yn_field as TermNode).object = g_reference_type;
+						}
 
 						// use as predicate
 						let g_predicate: Quad_Predicate;
@@ -732,14 +737,14 @@ export class GraphqlRewriter {
 						// many
 						if(yn_field.directives?.find(g_directive => 'many' === g_directive.name.value)) {
 							// wrap in array annotation
-							a_stack.at(-1)![si_label] = [h_descriptor];
+							z_binding = replace_shape_node(si_label, [h_descriptor]);
 						}
 
 
 						// is scalar filter
 						if(s_scalar_filter_type) {
 							// overwrite node in shape tree to use the scalar's target variable
-							a_stack.at(-1)![si_label] = g_target.value;
+							z_binding = replace_shape_node(si_label, g_target.value);
 
 							// apply the arguments as filter args
 							apply_filter_args(s_scalar_filter_type, a_arguments, g_target, a_where);
@@ -810,7 +815,7 @@ export class GraphqlRewriter {
 						}
 						// terminal scalar value
 						else {
-							a_stack.at(-1)![si_label] = g_target.value;
+							z_binding = replace_shape_node(si_label, g_target.value);
 
 							// uses `@filter` directive
 							const gc_filter = yn_field.directives?.find(g => 'filter' === g.name.value);
@@ -933,6 +938,17 @@ export class GraphqlRewriter {
 						else if(a_unions.length > 1) {
 							debugger;
 							throw new Error(`Union of inline fragment types not yet implemented`);
+						}
+					}
+
+					if(yn_field.directives?.find(g => 'hide' === g.name.value)) {
+						// string; add hidden annotation prefix
+						if(z_binding && 'string' === typeof z_binding) {
+							replace_shape_node(si_label, s_binding => '@'+s_binding);
+						}
+						// array or object
+						else {
+							h_node['@hide'] = 1;
 						}
 					}
 				},

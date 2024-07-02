@@ -52,7 +52,7 @@ function rebind(
 	h_out: Dict<JsonValue>,
 	a_path: string[],
 	a_errors: EvalError[]
-) {
+): boolean {
 	// copy struct
 	const h_local = {...h_struct};
 
@@ -60,13 +60,22 @@ function rebind(
 	for(const [si_key, z_target] of ode(h_local)) {
 		// terminal scalar
 		if('string' === typeof z_target) {
+			let si_target: string = z_target;
+
+			// hidden annotation
+			let b_hidden = false;
+			if('@' === z_target[0]) {
+				b_hidden = true;
+				si_target = (z_target as string).slice(1);  // eslint-disable-line @typescript-eslint/no-unnecessary-type-assertion
+			}
+
 			// reduce values
 			const as_scalars = new Set<boolean | number | string>();
 			const as_objects = new Set<string>();
 
 			// each binding; add to values set
 			for(const g_binding of a_bindings) {
-				let w_intermediate = sparql_binding_to_graphql_result(g_binding[z_target]);
+				let w_intermediate = sparql_binding_to_graphql_result(g_binding[si_target]);
 
 				// merge objects
 				if('object' === typeof w_intermediate) {
@@ -95,13 +104,18 @@ function rebind(
 				// nested selector
 				else {
 					a_errors.push({
-						message: `Multiple divergent bindings encountered; try adding the \`@many\` directive after \`${a_path.at(-1)}\` to collate results.`,
+						message: `Multiple divergent bindings encountered; try adding the \`@many\` directive to the \`${a_path.at(-1)}\` field in order to collate results.`,
 						bindingPath: a_path.join('.'),
 					});
 				}
 
 				// stop iterating
-				return;
+				return true;
+			}
+			// hidden
+			else if(b_hidden) {
+				// add key to '@hidden' list
+				((h_out['@hidden'] ||= []) as string[]).push(si_key);
 			}
 			// single scalar value
 			else if(as_scalars.size) {
@@ -163,8 +177,8 @@ function rebind(
 				// prepare object
 				const h_object = g_bucket.object as Dict<JsonValue>;
 
-				// apply rebinding
-				rebind(g_bucket.bindings, h_copy as BinderStruct, h_object, a_subpath, a_errors);
+				// apply rebinding; exit on bail
+				if(rebind(g_bucket.bindings, h_copy as BinderStruct, h_object, a_subpath, a_errors)) return true;
 
 				// append to list
 				a_values.push(h_object);
@@ -175,13 +189,24 @@ function rebind(
 		}
 		// object
 		else if('object' === typeof z_target) {
+			// hide directive
+			if(z_target['@hide']) {
+				// add key to '@hidden' list
+				((h_out['@hidden'] ||= []) as string[]).push(si_key);
+
+				// skip rebinding
+				continue;
+			}
+
 			// nest out
 			const h_nested = h_out[si_key] = {};
 
-			// apply rebinding
-			rebind(a_bindings, z_target as BinderStruct, h_nested, [...a_path, si_key], a_errors);
+			// apply rebinding; exit on bail
+			if(rebind(a_bindings, z_target as BinderStruct, h_nested, [...a_path, si_key], a_errors)) return true;
 		}
 	}
+
+	return false;
 }
 
 

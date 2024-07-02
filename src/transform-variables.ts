@@ -1,7 +1,10 @@
-import type {Dict} from 'npm:@blake.regalia/belt@^0.15.0';
 import type {BREAK, DocumentNode, TypeNode} from 'npm:graphql@^16.8.0';
 
+import {__UNDEFINED, type Dict} from 'npm:@blake.regalia/belt@^0.15.0';
+
 import {visit, Kind} from 'npm:graphql@^16.8.0';
+
+import {Plurality, unwrap_field_type} from './util.ts';
 
 
 
@@ -31,53 +34,58 @@ export function transform_variables(y_doc: DocumentNode, exit: (s_err: string) =
 				const z_value = h_variables[si_var];
 
 				// get type
-				let g_type = h_vtypes[si_var];
+				const g_type = h_vtypes[si_var];
 
-				// unwrap non-null type
-				let b_nonnull = false;
-				if(Kind.NON_NULL_TYPE === g_type.kind) {
-					b_nonnull = true;
-					g_type = g_type.type;
+				// unwrap type
+				const {
+					type: si_type,
+					plurality: a_plurality,
+					nonnull: b_nonnull,
+				} = unwrap_field_type(g_type);
+
+				// assert non-null
+				if(b_nonnull && __UNDEFINED === z_value) {
+					return exit(`Variable '${si_var}' expects a non-nullable type but a null value was provided`);
 				}
 
-				// list value
-				if(Kind.LIST_TYPE === g_type.kind) {
-					// assert type
-					if(Kind.NAMED_TYPE !== g_type.type.kind) {
-						return exit(`Only flat, nullable scalar types allowed in variable types at '$${si_var}' variable`);
+				// list type
+				if(a_plurality.length) {
+					// assert one-level deep
+					if(a_plurality.length > 1) {
+						return exit(`Multi-dimensional list types not supported; Only flat scalar types allowed in variable types at '$${si_var}' variable`);
 					}
-
 					// assert value is list
-					if(!Array.isArray(z_value)) {
+					else if(!Array.isArray(z_value)) {
 						return exit(`Variable '${si_var}' expects a list type but a non-array value was provided`);
 					}
-
-					// ref scalar type
-					const si_type = g_type.type.name.value;
-
 					// testable
-					if(si_type in H_VARIABLE_TESTERS) {
-						// nullable?
-						let a_test =(z_value as any[]);
-						if(b_nonnull) {
-							if(!a_test.every(w => null !== w)) {
+					else if(si_type in H_VARIABLE_TESTERS) {
+						// prep test values
+						let a_test = z_value;
+
+						// non-nullable items
+						if(Plurality.NONNULLABLE === a_plurality[0]) {
+							// assert every item is no null
+							if(!z_value.every(w => null !== w)) {
 								return exit(`Variable '${si_var}' expects a list of non-nullable ${si_type} but at least one null value was passed in the provided list`);
 							}
 						}
 						// remove null values before testing
 						else {
-							a_test = a_test.filter(w => null !== w);
+							a_test = z_value.filter(w => null !== w);
 						}
 
+						// assert type of each item
 						if(a_test.every(H_VARIABLE_TESTERS[si_type])) {
 							return exit(`Variable '${si_var}' expects a list of ${si_type} but not every value provided in the list was of the correct type`);
 						}
 					}
-					// unable to substitue
+					// unable to substitute
 					else {
 						return exit(`Variable '${si_var}' cannot use ${si_type} type because the server does not know how to apply the provided value(s)`);
 					}
 
+					// replace ast node
 					return {
 						kind: Kind.LIST,
 						values: z_value.map(w => ({
@@ -88,16 +96,14 @@ export function transform_variables(y_doc: DocumentNode, exit: (s_err: string) =
 				}
 				// named type
 				else {
-					// ref scalar type
-					const si_type = g_type.name.value;
-
 					// testable
 					if(si_type in H_VARIABLE_TESTERS) {
+						// assert correct type
 						if(!H_VARIABLE_TESTERS[si_type](z_value)) {
 							return exit(`Variable '${si_var}' expects a ${si_type} but the provided value was not of the correct type`);
 						}
 					}
-					// unable to substitue
+					// unable to substitute
 					else {
 						return exit(`Variable '${si_var}' cannot use ${si_type} type because the server does not know how to apply the provided value(s)`);
 					}

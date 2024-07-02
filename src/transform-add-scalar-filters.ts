@@ -20,11 +20,14 @@ export function transform_add_scalar_filters(y_doc: DocumentNode): DocumentNode 
 				// each field
 				for(const yn_field of yn_type.fields || []) {
 					// unwrap field type
-					const si_type = unwrap_field_type(yn_field.type).type as ScalarType;
+					const {
+						type: si_type,
+						plurality: a_plurality,
+					} = unwrap_field_type(yn_field.type);
 
-					// named type without arguments and scalar
-					if(!yn_field.arguments?.length && A_SCALARS.includes(si_type)) {
-						(yn_field.arguments as InputValueDefinitionNode[]) = [H_SCALAR_FILTER_ARGUMENTS[si_type]];
+					// only flat scalars with no arguments
+					if(A_SCALARS.includes(si_type as ScalarType) && !a_plurality.length && !yn_field.arguments?.length) {
+						(yn_field.arguments as InputValueDefinitionNode[]) = [H_SCALAR_FILTER_ARGUMENTS[si_type as ScalarType]];
 					}
 
 					// transform into filter function

@@ -19,10 +19,14 @@ export function transform_add_object_filters(y_doc: DocumentNode): DocumentNode 
 
 				// each field
 				for(const yn_field of yn_type.fields || []) {
-					const si_type = unwrap_field_type(yn_field.type).type as ScalarType;
+					// unwrap field type
+					const {
+						type: si_type,
+						plurality: a_plurality,
+					} = unwrap_field_type(yn_field.type);
 
-					// scalar; add it to list
-					if(A_SCALARS.includes(si_type)) {
+					// flat scalar with no arguments; transform into arg
+					if(A_SCALARS.includes(si_type as ScalarType) && !a_plurality.length && !yn_field.arguments?.length) {
 						a_scalar_args.push({
 							kind: Kind.INPUT_VALUE_DEFINITION,
 							name: graphql_name(yn_field.name.value),
@@ -48,8 +52,8 @@ export function transform_add_object_filters(y_doc: DocumentNode): DocumentNode 
 				for(const yn_field of yn_type.fields || []) {
 					const si_type = unwrap_field_type(yn_field.type).type;
 
-					// only fields that use object types
-					if(h_objects[si_type]) {
+					// only fields that use object types with no arguments
+					if(h_objects[si_type] && !yn_field.arguments?.length) {
 						(yn_field.arguments as InputValueDefinitionNode[]) = h_objects[si_type];
 					}
 

@@ -56,16 +56,21 @@ export function graphql_value_to_sparqljs_arg(g_value: ValueNode): NestedArrayab
 	}
 }
 
+export enum Plurality {
+	NULLABLE,
+	NONNULLABLE,
+}
 
 export function unwrap_field_type(g_def_type: TypeNode): {
 	type: string;
 	nonnull: boolean;
-	plural: boolean;
-	plural_nonnull: boolean;
+	plurality: Plurality[];
 } {
+	// prep root type non-nullability
 	let b_nonnull = false;
-	let b_plural = false;
-	let b_plural_nonnull = false;
+
+	// prep nestable plurality
+	const a_plurality: Plurality[] = [];
 
 	// unwrap non-null type
 	if(Kind.NON_NULL_TYPE === g_def_type.kind) {
@@ -73,35 +78,34 @@ export function unwrap_field_type(g_def_type: TypeNode): {
 		g_def_type = g_def_type.type;
 	}
 
-	// is list
-	if(Kind.LIST_TYPE === g_def_type.kind) {
-		b_plural = true;
-
+	// unwrap list
+	while(Kind.LIST_TYPE === g_def_type.kind) {
 		// unwrap list
 		g_def_type = g_def_type.type;
 
 		// unwrap nested non-null type
 		if(Kind.NON_NULL_TYPE === g_def_type.kind) {
-			b_plural_nonnull = true;
+			a_plurality.push(Plurality.NONNULLABLE);
 			g_def_type = g_def_type.type;
+		}
+		else {
+			a_plurality.push(Plurality.NULLABLE);
 		}
 	}
 
-	// named type without arguments
-	if(Kind.NAMED_TYPE === g_def_type.kind) {
-		// ref unwrapped type
-		const si_type = g_def_type.name.value;
-
-		return {
-			type: si_type,
-			nonnull: b_nonnull,
-			plural: b_plural,
-			plural_nonnull: b_plural_nonnull,
-		};
+	// not named type
+	if(Kind.NAMED_TYPE !== g_def_type.kind) {
+		throw new Error(`Failed to unwrap type node; please report this as a bug`);
 	}
 
-	// nested list type?
-	throw new Error(`Nested list type not allowed`);
+	// ref unwrapped type
+	const si_type = g_def_type.name.value;
+
+	return {
+		type: si_type,
+		nonnull: b_nonnull,
+		plurality: a_plurality,
+	};
 }
 
 export function apply_filter_args(
