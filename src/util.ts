@@ -1,18 +1,8 @@
 
 import type {FilterableFieldType} from './constants.ts';
-import type {BinderStruct, SparqlPlan, EvalError} from './share.ts';
-import type {Dict, JsonObject, JsonValue, Nilable} from 'npm:@blake.regalia/belt@^0.15.0';
-import type {Literal, NamedNode, Quad, Quad_Object, Quad_Predicate, Quad_Subject} from 'npm:@rdfjs/types@^1.1.0';
+import type {Literal, Quad_Subject} from 'npm:@rdfjs/types@^1.1.0';
 import type {Pattern} from 'npm:@types/sparqljs@^3.1';
 import type {
-	ConstDirectiveNode,
-	DocumentNode,
-	FieldDefinitionNode,
-	FieldNode,
-	FragmentDefinitionNode,
-	InlineFragmentNode,
-	InterfaceTypeDefinitionNode,
-	ObjectTypeDefinitionNode,
 	ValueNode,
 	TypeNode,
 	ArgumentNode,
@@ -22,7 +12,7 @@ import type {
 import {default as factory} from 'npm:@rdfjs/data-model@^1.1.0';
 import {Kind} from 'npm:graphql@^16.8.0';
 
-import {A_SCALARS, H_SCALAR_FILTERS, H_SCALAR_FILTER_ARGUMENTS, P_NS_XSD} from './constants.ts';
+import {H_SCALAR_FILTERS, P_NS_XSD} from './constants.ts';
 
 interface NestedArray<w> {
 	[i_index: number]: w | NestedArray<w>;

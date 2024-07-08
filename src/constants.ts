@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/naming-convention */
-import type {Dict} from 'npm:@blake.regalia/belt@^0.15.0';
+import type {Dict} from 'npm:@blake.regalia/belt@^0.37.0';
 
 import type {InputValueDefinitionNode, NameNode, TypeNode} from 'npm:graphql@^16.8.0';
 
-import {fodemtv, oderom} from 'npm:@blake.regalia/belt@^0.15.0';
+import {fodemtv, oderom} from 'npm:@blake.regalia/belt@^0.37.0';
 import {Kind} from 'npm:graphql@^16.8.0';
 
 export const P_NS_XSD = 'http://www.w3.org/2001/XMLSchema#';

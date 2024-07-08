@@ -2,13 +2,14 @@
 /// <reference path="./rdfjs.d.ts" />
 
 import type {FilterableFieldType, ScalarType} from './constants.ts';
-import type {BinderStruct, SparqlPlan, EvalError} from './share.ts';
-import type {Dict, JsonObject, JsonValue, Nilable} from 'npm:@blake.regalia/belt@^0.15.0';
+import type {BinderStruct, SparqlPlan, EvalError, QueryModifiers} from './share.ts';
+import type {Dict, JsonObject, JsonValue, Nilable} from 'npm:@blake.regalia/belt@^0.37.0';
 import type {Literal, NamedNode, Quad, Quad_Object, Quad_Predicate, Quad_Subject} from 'npm:@rdfjs/types@^1.1.0';
 import type {Pattern} from 'npm:@types/sparqljs@^3.1';
 import type {
 	ArgumentNode,
 	ConstDirectiveNode,
+	DirectiveNode,
 	DocumentNode,
 	FieldDefinitionNode,
 	FieldNode,
@@ -19,7 +20,7 @@ import type {
 	ValueNode,
 } from 'npm:graphql@^16.8.0';
 
-import {ode, proper} from 'npm:@blake.regalia/belt@^0.15.0';
+import {assign, entries, proper} from 'npm:@blake.regalia/belt@^0.37.0';
 import {default as factory} from 'npm:@rdfjs/data-model@^1.1.0';
 import {Kind, parse, visit, BREAK} from 'npm:graphql@^16.8.0';
 import {default as jsonld} from 'npm:jsonld@^8.2.0';
@@ -158,6 +159,79 @@ function translate_expanded_node_def(si_key: string, g_node: JsonLdNode): Transl
 	}
 }
 
+function parse_directive<h_args extends Record<string, {
+	kind: Kind;
+	optional?: boolean;
+}>>(
+	yn_node: {readonly directives?: ReadonlyArray<DirectiveNode>},
+	si_directive: string,
+	h_args: h_args
+) {
+	// return
+	// const h_values: Dict<boolean | number | string> = {};
+	const h_values = {} as {
+		[si_arg in keyof h_args]: h_args[si_arg] extends {kind: Kind.BOOLEAN}
+			? boolean
+			: h_args[si_arg] extends {kind: Kind.INT}
+				? number
+				: h_args[si_arg] extends {kind: Kind.FLOAT}
+					? number
+					: h_args[si_arg] extends {kind: Kind.STRING}
+						? string
+						: h_args[si_arg] extends {kind: Kind.NULL}
+							? null
+							: any;
+	};
+
+	// find directive
+	const g_directive = yn_node.directives?.find(g => si_directive === g.name.value);
+	if(g_directive) {
+		// each arg
+		for(const [si_arg, gc_arg] of entries(h_args)) {
+			// find arg
+			const g_arg = g_directive.arguments?.find(g => si_arg === g.name.value);
+			if(g_arg) {
+				let z_value!: boolean | number | string | null | undefined;
+
+				switch(g_arg.value.kind) {
+					case Kind.BOOLEAN: {
+						z_value = g_arg.value.value;
+						break;
+					}
+
+					case Kind.INT: {
+						z_value = parseInt(g_arg.value.value);
+						break;
+					}
+
+					case Kind.FLOAT: {
+						z_value = parseFloat(g_arg.value.value);
+						break;
+					}
+
+					case Kind.STRING: {
+						z_value = g_arg.value.value;
+						break;
+					}
+
+					case Kind.NULL: {
+						z_value = null;
+						break;
+					}
+				}
+
+				h_values[si_arg] = z_value;
+			}
+			// arg not found but required
+			else if(!gc_arg.optional) {
+				throw Error(`Missing required argument "${si_arg}" in directive @${si_directive}`);
+			}
+		}
+	}
+
+	return h_values;
+}
+
 interface ObjectNode {
 	label: string;
 	fields: Dict<FieldDefinitionNode>;
@@ -216,7 +290,7 @@ export class GraphqlRewriter {
 		// using context
 		if(_h_context) {
 			// create a complete dummy document for json-ld to be able to expand it
-			for(const [si_key, w_value] of ode(_h_context)) {
+			for(const [si_key, w_value] of entries(_h_context)) {
 				// expand a dummy document using the id
 				const a_expanded = await jsonld.expand({
 					'@context': _h_context,
@@ -296,6 +370,9 @@ export class GraphqlRewriter {
 		const a_root_bgp: Quad[] = [];
 		const a_bgp = a_root_bgp;
 
+		// extras
+		const g_extras: QueryModifiers = {};
+
 		const a_where: Pattern[] = [{
 			type: 'bgp',
 			triples: a_bgp,
@@ -370,6 +447,48 @@ export class GraphqlRewriter {
 
 		// visit ast
 		visit(y_doc, {
+			// document
+			[Kind.OPERATION_DEFINITION]: {
+				enter(yn_op) {
+					// find and parse pagination directive
+					const g_paginate = parse_directive(yn_op, 'paginate', {
+						limit: {
+							kind: Kind.INT,
+						},
+						offset: {
+							kind: Kind.INT,
+							optional: true,
+						},
+						order: {
+							kind: Kind.STRING,
+							optional: true,
+						},
+						desc: {
+							kind: Kind.BOOLEAN,
+							optional: true,
+						},
+					});
+
+					// pagination directive used
+					if(g_paginate) {
+						// usher args into extras
+						assign(g_extras, {
+							limit: g_paginate.limit,
+							offset: g_paginate.offset,
+							...g_paginate.order? {
+								order: [{
+									expression: {
+										termType: 'Variable',
+										value: g_paginate.order,
+									},
+									descending: !!g_paginate.desc,
+								}],
+							}: {},
+						});
+					}
+				},
+			},
+
 			// each field
 			[Kind.FIELD]: {
 				// pop when leaving
@@ -959,6 +1078,7 @@ export class GraphqlRewriter {
 			where: a_where,
 			shape: h_root,
 			errors: a_errors,
+			extras: g_extras,
 		};
 	}
 }

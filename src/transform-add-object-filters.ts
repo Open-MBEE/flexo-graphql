@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import type {ScalarType} from './constants.ts';
-import type {Dict} from 'npm:@blake.regalia/belt@^0.15.0';
+import type {Dict} from 'npm:@blake.regalia/belt@^0.37.0';
 import type {BREAK, DocumentNode, FieldDefinitionNode, InputValueDefinitionNode} from 'npm:graphql@^16.8.0';
 
 import {Kind, parse, visit} from 'npm:graphql@^16.8.0';

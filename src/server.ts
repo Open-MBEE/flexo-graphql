@@ -1,15 +1,17 @@
 import type {GraphqlRewriterConfig} from './rewriter.ts';
-import type {Response as OakResponse, Request as OakRequest, RouterContext} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
-import type {ResponseBody as OakResponseBody} from 'https://deno.land/x/oak@v12.6.1/response.ts';
+import type {QueryModifiers} from './sparql.ts';
+import type {Response as OakResponse, Request as OakRequest, RouterContext} from 'jsr:@oak/oak';
+import type {ResponseBody as OakResponseBody} from 'jsr:@oak/oak/response';
 
+import type {JsonObject} from 'npm:@blake.regalia/belt@^0.37.0';
 import type {ASTNode} from 'npm:graphql@^16.8.0';
 
-import {parse as parseCli} from 'https://deno.land/std@0.203.0/flags/mod.ts';
+import {parseArgs} from '@std/cli/parse-args';
 import {parse as parseContentType} from 'https://deno.land/x/content_type@1.0.1/mod.ts';
 import {oakCors} from 'https://deno.land/x/cors@v1.2.2/mod.ts';
-import {Application, Router} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
-import {send} from 'https://deno.land/x/oak@v12.6.1/send.ts';
-import {oderac} from 'npm:@blake.regalia/belt@^0.15.0';
+import {Application, Router} from 'jsr:@oak/oak';
+import {send} from 'jsr:@oak/oak/send';
+import {concat_entries} from 'npm:@blake.regalia/belt@^0.37.0';
 
 import {parse, print} from 'npm:graphql@^16.8.0';
 
@@ -44,7 +46,7 @@ const H_OPT_DESC = {
 	p: '[optional] port number to bind server',
 };
 
-const h_flags = parseCli(Deno.args, {
+const h_flags = parseArgs(Deno.args, {
 	boolean: ['help'],
 	string: Object.values(H_OPT_ALIASES),
 	alias: {
@@ -60,7 +62,7 @@ const n_port = parseInt((h_flags['port'] || h_flags['p'] || '3001') as string);
 if(h_flags['help'] || h_flags['h'] || !sr_jsonld_context || !sr_graphql_schema) {
 	console.error(
 		`Usage: vr serve [OPTIONS]\n`
-		+`\nOptions:\n${oderac(H_OPT_ALIASES, (si_alias, si_flag) => `  -${si_alias}, --${si_flag} ${'p' === si_alias? 'VALUE': 'PATH'}`.padEnd(22, ' ')+H_OPT_DESC[si_alias]).join('\n')}\n`
+		+`\nOptions:\n${concat_entries(H_OPT_ALIASES, (si_alias, si_flag) => `  -${si_alias}, --${si_flag} ${'p' === si_alias? 'VALUE': 'PATH'}`.padEnd(22, ' ')+H_OPT_DESC[si_alias]).join('\n')}\n`
 		+`\nExample: vr serve -c res/context.json -s res/schema.graphql`
 	);
 	Deno.exit(h_flags['help'] || h_flags['h']? 0: 1);
@@ -184,15 +186,13 @@ const y_router = new Router()
 		}
 
 		// handle json
-		let g_value: any;
+		let g_value: {
+			query: string;
+			variables?: JsonObject;
+		} & QueryModifiers;
 		try {
 			// parse request body as json
-			const g_body = d_req.body({
-				type: 'json',
-			});
-
-			// read body value
-			g_value = await g_body.value;
+			g_value = await d_req.body.json();
 		}
 		// parsing error
 		catch(e_parse) {
@@ -256,7 +256,7 @@ const y_router = new Router()
 			bindings: h_output,
 			errors: a_errors,
 			query: sx_sparql,
-		} = await exec_plan(g_plan, p_endpoint, h_headers);
+		} = await exec_plan(g_plan, p_endpoint, h_headers, g_value);
 
 		// return output bindings
 		d_res.body = a_errors.length

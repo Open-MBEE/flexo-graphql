@@ -1,6 +1,6 @@
 import type {BREAK, DocumentNode, TypeNode} from 'npm:graphql@^16.8.0';
 
-import {__UNDEFINED, type Dict} from 'npm:@blake.regalia/belt@^0.15.0';
+import {__UNDEFINED, type Dict} from 'npm:@blake.regalia/belt@^0.37.0';
 
 import {visit, Kind} from 'npm:graphql@^16.8.0';
 

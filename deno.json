@@ -1,0 +1,8 @@
+{
+  "imports": {
+    "@oak/oak": "jsr:@oak/oak@^16.1.0",
+    "@std/cli": "jsr:@std/cli@^0.224.7",
+    "@std/fs": "jsr:@std/fs@^0.229.3",
+    "@std/path": "jsr:@std/path@^0.225.2"
+  }
+}

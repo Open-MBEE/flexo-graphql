@@ -1,11 +1,10 @@
-import type {BinderStruct, EvalError, SparqlPlan} from './share.ts';
-import type {Dict, JsonObject, JsonValue} from 'npm:@blake.regalia/belt@^0.15.0';
+import type {BinderStruct, EvalError, QueryModifiers, SparqlPlan} from './share.ts';
+import type {Dict, JsonObject, JsonValue} from 'npm:@blake.regalia/belt@^0.37.0';
 
-import {ode} from 'npm:@blake.regalia/belt@^0.15.0';
+import {entries, is_boolean, is_number, is_object, is_string, is_undefined, stringify_json} from 'npm:@blake.regalia/belt@^0.37.0';
 import {default as sparqljs} from 'npm:sparqljs@^3';
 
 import {P_NS_BASE, P_NS_DEF, P_NS_RDF, P_NS_XSD} from './constants.ts';
-
 
 type SparqlBinding = Dict<{
 	type: 'uri';
@@ -57,7 +56,7 @@ function rebind(
 	const h_local = {...h_struct};
 
 	// iterate into struct first to clear scalars
-	for(const [si_key, z_target] of ode(h_local)) {
+	for(const [si_key, z_target] of entries(h_local)) {
 		// terminal scalar
 		if('string' === typeof z_target) {
 			let si_target: string = z_target;
@@ -132,7 +131,7 @@ function rebind(
 	}
 
 	// iterate into struct
-	for(const [si_key, z_target] of ode(h_local)) {
+	for(const [si_key, z_target] of entries(h_local)) {
 		// array
 		if(Array.isArray(z_target)) {
 			const h_shape = z_target[0];
@@ -164,7 +163,7 @@ function rebind(
 			const a_values: Dict<JsonValue>[] = [];
 
 			// each bucket
-			for(const [p_iri, g_bucket] of ode(h_buckets)) {
+			for(const [p_iri, g_bucket] of entries(h_buckets)) {
 				// copy shape
 				const h_copy = {...h_shape};
 
@@ -217,6 +216,9 @@ export async function exec_plan(g_plan: SparqlPlan, p_endpoint: string, h_header
 }> {
 	const y_gen = new sparqljs.Generator();
 
+	// prep extras
+	const g_extras = g_plan.extras || {};
+
 	const sx_sparql = y_gen.stringify({
 		queryType: 'SELECT',
 		variables: [{
@@ -227,6 +229,7 @@ export async function exec_plan(g_plan: SparqlPlan, p_endpoint: string, h_header
 		type: 'query',
 		prefixes: h_prefixes,
 		where: g_plan.where,
+		...g_extras,
 	});
 
 	const d_res = await fetch(p_endpoint, {
