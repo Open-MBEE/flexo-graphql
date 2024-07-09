@@ -154,6 +154,17 @@ Tells the service where to collate results:
 ```
 
 
+### `@paginate` directive
+
+Only allowed at the query level, limits the number of rows returned by the SPARQL query so that large results can be paginated. Keep in mind, this only makes sense for queries that do not contain any uses of the `@many` directive.
+
+```graphql
+query Example @paginate(limit: 200, offset: 100) {
+  # ...
+}
+```
+
+
 ## Inverse predicates
 
 Properties that are prefixed by `_inv_` signify an incoming relationship from another object:
