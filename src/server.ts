@@ -1,17 +1,25 @@
 import type {GraphqlRewriterConfig} from './rewriter.ts';
-import type {Response as OakResponse} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
-import type {ResponseBody as OakResponseBody} from 'https://deno.land/x/oak@v12.6.1/response.ts';
+import type {QueryModifiers} from './sparql.ts';
+import type {Response as OakResponse, Request as OakRequest, RouterContext} from 'jsr:@oak/oak';
+import type {ResponseBody as OakResponseBody} from 'jsr:@oak/oak/response';
 
-import {parse as parseCli} from 'https://deno.land/std@0.201.0/flags/mod.ts';
+import type {JsonObject} from 'npm:@blake.regalia/belt@^0.37.0';
+import type {ASTNode} from 'npm:graphql@^16.8.0';
+
+import {parseArgs} from '@std/cli/parse-args';
 import {parse as parseContentType} from 'https://deno.land/x/content_type@1.0.1/mod.ts';
 import {oakCors} from 'https://deno.land/x/cors@v1.2.2/mod.ts';
-import {Application, Router} from 'https://deno.land/x/oak@v12.6.1/mod.ts';
-import {send} from 'https://deno.land/x/oak@v12.6.1/send.ts';
-import {oderac} from 'npm:@blake.regalia/belt@^0.15.0';
+import {Application, Router} from 'jsr:@oak/oak';
+import {send} from 'jsr:@oak/oak/send';
+import {concat_entries} from 'npm:@blake.regalia/belt@^0.37.0';
+
+import {parse, print} from 'npm:graphql@^16.8.0';
 
 import {SchemaHandler} from './apollo.ts';
 import {GraphqlRewriter} from './rewriter.ts';
 import {exec_plan} from './sparql.ts';
+import {transform_add_object_filters} from './transform-add-object-filters.ts';
+import {transform_add_scalar_filters} from './transform-add-scalar-filters.ts';
 
 
 const SX_MIME_JSON = 'application/json';
@@ -38,7 +46,7 @@ const H_OPT_DESC = {
 	p: '[optional] port number to bind server',
 };
 
-const h_flags = parseCli(Deno.args, {
+const h_flags = parseArgs(Deno.args, {
 	boolean: ['help'],
 	string: Object.values(H_OPT_ALIASES),
 	alias: {
@@ -49,12 +57,12 @@ const h_flags = parseCli(Deno.args, {
 
 const sr_jsonld_context = h_flags['context'] || h_flags['c'] || '';
 const sr_graphql_schema = h_flags['schema'] || h_flags['s'] || '';
-const n_port = parseInt(h_flags['port'] || h_flags['p'] || '3001');
+const n_port = parseInt((h_flags['port'] || h_flags['p'] || '3001') as string);
 
 if(h_flags['help'] || h_flags['h'] || !sr_jsonld_context || !sr_graphql_schema) {
 	console.error(
 		`Usage: vr serve [OPTIONS]\n`
-		+`\nOptions:\n${oderac(H_OPT_ALIASES, (si_alias, si_flag) => `  -${si_alias}, --${si_flag} ${'p' === si_alias? 'VALUE': 'PATH'}`.padEnd(22, ' ')+H_OPT_DESC[si_alias]).join('\n')}\n`
+		+`\nOptions:\n${concat_entries(H_OPT_ALIASES, (si_alias, si_flag) => `  -${si_alias}, --${si_flag} ${'p' === si_alias? 'VALUE': 'PATH'}`.padEnd(22, ' ')+H_OPT_DESC[si_alias]).join('\n')}\n`
 		+`\nExample: vr serve -c res/context.json -s res/schema.graphql`
 	);
 	Deno.exit(h_flags['help'] || h_flags['h']? 0: 1);
@@ -67,19 +75,48 @@ if(!P_ENDPOINT) {
 	Deno.exit(1);
 }
 
-const sx_jsonld_context = sr_jsonld_context? Deno.readTextFileSync(sr_jsonld_context): '';
-const sx_graphql_schema = sr_graphql_schema? Deno.readTextFileSync(sr_graphql_schema): '';
+const sx_jsonld_context: string = sr_jsonld_context? Deno.readTextFileSync(sr_jsonld_context): '';
+const sx_graphql_schema_input: string = sr_graphql_schema? Deno.readTextFileSync(sr_graphql_schema): '';
 
 const k_rewriter = await GraphqlRewriter.create({
-	schema: sx_graphql_schema,
+	schema: sx_graphql_schema_input,
 	context: (JSON.parse(sx_jsonld_context) as {
 		'@context': GraphqlRewriterConfig['context'];
 	})['@context'],
 });
 
-const y_apollo = new SchemaHandler(sx_graphql_schema);
+// transform input schema by adding filter functions for scalar types
+const y_doc_schema_input = parse(sx_graphql_schema_input);
+const y_doc_schema_transformed = transform_add_scalar_filters(
+	transform_add_object_filters(y_doc_schema_input)
+) as ASTNode;
+const sx_graphql_schema_transformed = print(y_doc_schema_transformed) as string;
 
+// instantiate apollo server
+const y_apollo = new SchemaHandler(sx_graphql_schema_transformed);
+
+// route pattern
 const sx_pattern = `/orgs/:org/repos/:repo/branches/:branch`;
+
+async function graphiql(y_ctx: RouterContext<string>) {
+	await send(y_ctx, './', {
+		root: `${Deno.cwd()}/public`,
+		index: 'graphiql.html',
+	});
+}
+
+function scrub_headers(d_req: OakRequest) {
+	const h_headers = Object.fromEntries(d_req.headers.entries() as IterableIterator<[string, string]>);
+	delete h_headers['accept'];
+	delete h_headers['content-type'];
+	delete h_headers['content-length'];
+	delete h_headers['host'];
+	delete h_headers['origin'];
+	delete h_headers['referer'];
+	delete h_headers['connection'];
+
+	return h_headers;
+}
 
 const y_router = new Router()
 	.get('/', async(y_ctx) => {
@@ -93,12 +130,42 @@ const y_router = new Router()
 			index: 'index.html',
 		});
 	})
-	.get(`${sx_pattern}/`, async(y_ctx) => {
-		await send(y_ctx, './', {
-			root: `${Deno.cwd()}/public`,
-			index: 'graphiql.html',
-		});
+	// for local deployment, proxy the login
+	.get('/login', async({request:d_req, response:d_res}) => {
+		const p_login = Object.assign(new URL(P_ENDPOINT as string), {
+			pathname: '/login',
+			search: '',
+		})+'';
+
+		// capture headers
+		const h_headers = scrub_headers(d_req);
+
+		// abort after a few seconds
+		const d_controller = new AbortController();
+		setTimeout(() => {
+			d_controller.abort();
+		}, 2e3);
+
+		// check for login
+		try {
+			const d_fetch = await fetch(p_login, {
+				headers: h_headers,
+				signal: d_controller.signal,
+			});
+
+			// forward server response to client
+			Object.assign(d_res, {
+				headers: d_fetch.headers,
+				body: d_fetch.body,
+				status: d_fetch.status,
+			});
+		}
+		catch(e_login) {
+			d_res.status = 204;
+		}
 	})
+	.get(`${sx_pattern}/`, graphiql)
+	.get(`${sx_pattern}/graphql`, graphiql)
 	.post(`${sx_pattern}/graphql`, async({request:d_req, response:d_res, params:h_params}) => {
 		// parse content type from request header
 		const g_type = parseContentType(d_req.headers.get('content-type') || 'text/html');
@@ -119,15 +186,13 @@ const y_router = new Router()
 		}
 
 		// handle json
-		let g_value: any;
+		let g_value: {
+			query: string;
+			variables?: JsonObject;
+		} & QueryModifiers;
 		try {
 			// parse request body as json
-			const g_body = d_req.body({
-				type: 'json',
-			});
-
-			// read body value
-			g_value = await g_body.value;
+			g_value = await d_req.body.json();
 		}
 		// parsing error
 		catch(e_parse) {
@@ -181,14 +246,17 @@ const y_router = new Router()
 		}
 
 		// materialize endpoint URL
-		const p_endpoint = P_ENDPOINT.replace(/\$\{([^}]+)\}/g, (s_0, s_var: keyof typeof h_params) => h_params[s_var]!);
+		const p_endpoint: string = P_ENDPOINT.replace(/\$\{([^}]+)\}/g, (s_0, s_var: keyof typeof h_params) => h_params[s_var]!);
+
+		// collect all other headers
+		const h_headers = scrub_headers(d_req);
 
 		// execute sparql plan
 		const {
 			bindings: h_output,
 			errors: a_errors,
 			query: sx_sparql,
-		} = await exec_plan(g_plan, p_endpoint);
+		} = await exec_plan(g_plan, p_endpoint, h_headers, g_value);
 
 		// return output bindings
 		d_res.body = a_errors.length

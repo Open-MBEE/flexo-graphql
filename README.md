@@ -13,16 +13,44 @@
  - _(optional)_ [https://velociraptor.run/](Velociraptor) (script runner for Deno projects)
 
 
-## Install
+## Running the GraphQL server
+
+
+### Using docker
+
+Build or fetch the image:
+```sh
+docker build -t flexo-graphql .
+## OR ##
+docker pull openmbee/flexo-graphql
+```
+
+Run the container. Mount a directory to `/data` where the app can find `context.json` and `schema.graphql`:
+
+For example, if the host cwd looks like:
+```
+.
+├── README.md
+├── res
+│   ├── context.json
+│   ├── schema.graphql
+```
+
+Then the docker command to run a container mounting the `/res` directory might look like this:
+```sh
+docker run -it --rm -v $(pwd)/res:/data -e 'SPARQL_ENDPOINT=http://localhost:7200/repositories/${org}-${repo}' graphql
+```
+
+### Without docker
+
+#### Install
 
 ```sh
 vr install
 ```
 
 
-## Running the GraphQL server
-
-### Configure the SPARQL endpoint
+#### Configure the SPARQL endpoint
 
 Define a `SPARQL_ENDPOINT` environment variable that binds a **pattern** for the URL. The server will make the following substitutions in the pattern:
  - `${org}` -- replaced with the target `orgId` the user is querying
@@ -38,7 +66,7 @@ SPARQL_ENDPOINT='http://localhost:7200/repositories/${org}-${repo}'
 With this configuratino, a request to `https://graphql-server/orgs/mms/repos/test/branches/master` would forward a SPARQL request to `http://localhost:7200/repositories/mms-test`.
 
 
-### Run the server
+#### Run the server
 
 ```
 Usage: vr serve [OPTIONS]
@@ -49,7 +77,7 @@ Options:
   -p, --port VALUE    [optional] port number to bind server
 ```
 
-#### Example
+##### Example
 
 ```sh
 vr serve -c context.json -s schema.graphql
