@@ -1,7 +1,7 @@
-import type {BinderStruct, EvalError, QueryModifiers, SparqlPlan} from './share.ts';
+import type {BinderStruct, EvalError, SparqlPlan} from './share.ts';
 import type {Dict, JsonObject, JsonValue} from 'npm:@blake.regalia/belt@^0.37.0';
 
-import {entries, is_boolean, is_number, is_object, is_string, is_undefined, stringify_json} from 'npm:@blake.regalia/belt@^0.37.0';
+import {entries} from 'npm:@blake.regalia/belt@^0.37.0';
 import {default as sparqljs} from 'npm:sparqljs@^3';
 
 import {P_NS_BASE, P_NS_DEF, P_NS_RDF, P_NS_XSD} from './constants.ts';

@@ -1,5 +1,5 @@
 import type {GraphqlRewriterConfig} from './rewriter.ts';
-import type {QueryModifiers} from './sparql.ts';
+import type {QueryModifiers} from './share.ts';
 import type {Response as OakResponse, Request as OakRequest, RouterContext} from 'jsr:@oak/oak';
 import type {ResponseBody as OakResponseBody} from 'jsr:@oak/oak/response';
 
@@ -256,7 +256,7 @@ const y_router = new Router()
 			bindings: h_output,
 			errors: a_errors,
 			query: sx_sparql,
-		} = await exec_plan(g_plan, p_endpoint, h_headers, g_value);
+		} = await exec_plan(g_plan, p_endpoint, h_headers);
 
 		// return output bindings
 		d_res.body = a_errors.length

@@ -76,7 +76,7 @@ const camel = (s_name: string) => s_name[0].toLowerCase()+s_name.slice(1);
 						let s_predicate = 'By';
 
 						// non-primitive object reference
-						if(!A_SCALARS.includes(s_type)) {
+						if(!A_SCALARS.includes(s_type as 'String')) {
 							as_queued.add(s_type);
 
 							// do not produce query
