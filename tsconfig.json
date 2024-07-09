@@ -3,7 +3,7 @@
 
 	"compilerOptions": {
 		"baseUrl": ".",
-		"lib": ["DOM"]
+		"lib": ["DOM"],
 	},
 
 	"include": [

@@ -1,11 +1,15 @@
 // eslint-disable-next-line @typescript-eslint/triple-slash-reference
 /// <reference path="./rdfjs.d.ts" />
 
-import type {BinderStruct, SparqlPlan, EvalError} from './share.ts';
-import type {Dict, JsonObject, JsonValue, Nilable} from 'npm:@blake.regalia/belt@^0.15.0';
-import type {Literal, NamedNode, Quad, Quad_Object, Quad_Predicate, Quad_Subject} from 'npm:@rdfjs/types@^1.1.0';
+import type {FilterableFieldType, ScalarType} from './constants.ts';
+import type {BinderStruct, SparqlPlan, EvalError, QueryModifiers} from './share.ts';
+import type {Dict, JsonObject, JsonValue, Nilable} from 'npm:@blake.regalia/belt@^0.37.0';
+import type {NamedNode, Quad, Quad_Object, Quad_Predicate, Quad_Subject} from 'npm:@rdfjs/types@^1.1.0';
+import type {Pattern} from 'npm:@types/sparqljs@^3.1';
 import type {
+	ArgumentNode,
 	ConstDirectiveNode,
+	DirectiveNode,
 	DocumentNode,
 	FieldDefinitionNode,
 	FieldNode,
@@ -13,19 +17,18 @@ import type {
 	InlineFragmentNode,
 	InterfaceTypeDefinitionNode,
 	ObjectTypeDefinitionNode,
-	ValueNode,
 } from 'npm:graphql@^16.8.0';
-import type {Pattern} from 'npm:sparqljs@^3.7.1';
 
-import {ode, proper} from 'npm:@blake.regalia/belt@^0.15.0';
+import {assign, entries, proper} from 'npm:@blake.regalia/belt@^0.37.0';
 import {default as factory} from 'npm:@rdfjs/data-model@^1.1.0';
 import {Kind, parse, visit, BREAK} from 'npm:graphql@^16.8.0';
 import {default as jsonld} from 'npm:jsonld@^8.2.0';
 
-import {A_PRIMITIVES, P_NS_XSD} from './constants.ts';
+import {A_SCALARS, P_NS_XSD} from './constants.ts';
 import {G_RDF_TYPE} from './share.ts';
 import {transform_skip_include} from './transform-skip-include.ts';
 import {transform_variables} from './transform-variables.ts';
+import {apply_filter_args, graphql_value_to_sparqljs_arg, unwrap_field_type} from './util.ts';
 
 interface TermNode extends FieldNode {
 	term: Quad_Subject;
@@ -50,10 +53,6 @@ const H_BINARY_OPERATORS: Dict = {
 	// lt: '<',
 	// gte: '>=',
 	// lte: '<=',
-	// equalTo: '=',
-	// notEqualTo: '!=',
-	// lesserThan: '<',
-	// lesserThanOrEqualTo: '<=',
 
 	equals: '=',
 	notEquals: '!=',
@@ -155,6 +154,82 @@ function translate_expanded_node_def(si_key: string, g_node: JsonLdNode): Transl
 	}
 }
 
+function parse_directive<h_args extends Record<string, {
+	kind: Kind;
+	optional?: boolean;
+}>>(
+	yn_node: {readonly directives?: ReadonlyArray<DirectiveNode>},
+	si_directive: string,
+	h_args: h_args
+) {
+	// return
+	// const h_values: Dict<boolean | number | string> = {};
+	const h_values = {} as {
+		[si_arg in keyof h_args]: h_args[si_arg] extends {kind: Kind.BOOLEAN}
+			? boolean
+			: h_args[si_arg] extends {kind: Kind.INT}
+				? number
+				: h_args[si_arg] extends {kind: Kind.FLOAT}
+					? number
+					: h_args[si_arg] extends {kind: Kind.STRING}
+						? string
+						: h_args[si_arg] extends {kind: Kind.NULL}
+							? null
+							: any;
+	};
+
+	// find directive
+	const g_directive = yn_node.directives?.find(g => si_directive === g.name.value);
+	if(g_directive) {
+		// each arg
+		for(const [si_arg, gc_arg] of entries(h_args)) {
+			// find arg
+			const g_arg = g_directive.arguments?.find(g => si_arg === g.name.value);
+			if(g_arg) {
+				let z_value!: boolean | number | string | null | undefined;
+
+				switch(g_arg.value.kind) {
+					case Kind.BOOLEAN: {
+						z_value = g_arg.value.value;
+						break;
+					}
+
+					case Kind.INT: {
+						z_value = parseInt(g_arg.value.value);
+						break;
+					}
+
+					case Kind.FLOAT: {
+						z_value = parseFloat(g_arg.value.value);
+						break;
+					}
+
+					case Kind.STRING: {
+						z_value = g_arg.value.value;
+						break;
+					}
+
+					case Kind.NULL: {
+						z_value = null;
+						break;
+					}
+
+					default: { break; }
+				}
+
+				// deno-lint-ignore no-explicit-any
+				h_values[si_arg] = z_value as any;
+			}
+			// arg not found but required
+			else if(!gc_arg.optional) {
+				throw Error(`Missing required argument "${si_arg}" in directive @${si_directive}`);
+			}
+		}
+	}
+
+	return h_values;
+}
+
 interface ObjectNode {
 	label: string;
 	fields: Dict<FieldDefinitionNode>;
@@ -213,7 +288,7 @@ export class GraphqlRewriter {
 		// using context
 		if(_h_context) {
 			// create a complete dummy document for json-ld to be able to expand it
-			for(const [si_key, w_value] of ode(_h_context)) {
+			for(const [si_key, w_value] of entries(_h_context)) {
 				// expand a dummy document using the id
 				const a_expanded = await jsonld.expand({
 					'@context': _h_context,
@@ -293,6 +368,9 @@ export class GraphqlRewriter {
 		const a_root_bgp: Quad[] = [];
 		const a_bgp = a_root_bgp;
 
+		// extras
+		const g_extras: QueryModifiers = {};
+
 		const a_where: Pattern[] = [{
 			type: 'bgp',
 			triples: a_bgp,
@@ -306,6 +384,17 @@ export class GraphqlRewriter {
 
 		// prep node stack
 		const a_stack: Dict<JsonValue>[] = [];
+
+		// replaces the current node in the stack at the specified key using a replacer callback
+		const replace_shape_node = <
+			w_replacement extends JsonValue,
+		>(si_key: string, w_replacer: w_replacement | ((w_current: JsonValue) => w_replacement)): w_replacement => {
+			const w_node = a_stack.at(-1)!;
+			return w_node[si_key] = ('function' === typeof w_replacer? w_replacer(w_node[si_key]): w_replacer) as w_replacement;
+		};
+
+		// schema definition stack
+		const a_defs = [];
 
 		// parse query
 		let y_doc = parse(sx_query);
@@ -356,6 +445,48 @@ export class GraphqlRewriter {
 
 		// visit ast
 		visit(y_doc, {
+			// document
+			[Kind.OPERATION_DEFINITION]: {
+				enter(yn_op) {
+					// find and parse pagination directive
+					const g_paginate = parse_directive(yn_op, 'paginate', {
+						limit: {
+							kind: Kind.INT,
+						},
+						offset: {
+							kind: Kind.INT,
+							optional: true,
+						},
+						order: {
+							kind: Kind.STRING,
+							optional: true,
+						},
+						desc: {
+							kind: Kind.BOOLEAN,
+							optional: true,
+						},
+					});
+
+					// pagination directive used
+					if(g_paginate) {
+						// usher args into extras
+						assign(g_extras, {
+							limit: g_paginate.limit,
+							offset: g_paginate.offset,
+							...g_paginate.order? {
+								order: [{
+									expression: {
+										termType: 'Variable',
+										value: g_paginate.order,
+									},
+									descending: !!g_paginate.desc,
+								}],
+							}: {},
+						});
+					}
+				},
+			},
+
 			// each field
 			[Kind.FIELD]: {
 				// pop when leaving
@@ -365,59 +496,15 @@ export class GraphqlRewriter {
 
 				// when entering...
 				enter(yn_field, si_key, z_parent, a_path, a_ancestors) {
-					// field name
+					// ref field name
 					const si_field = yn_field.name.value;
 
-					// alias
+					// ref alias
 					const si_label = yn_field.alias?.value || si_field;
 
 					// ref arguments
-					const a_arguments = yn_field.arguments;
+					const a_arguments = yn_field.arguments as ArgumentNode[];
 
-					// type check arguments
-					for(const g_arg of a_arguments || []) {
-						// ref argument name
-						const si_arg = g_arg.name.value;
-
-						// translate
-						let p_iri: string;
-						let s_type_expected: string;
-						try {
-							({
-								iri: p_iri,
-								type: s_type_expected,
-							} = k_self.translate(si_arg));
-						}
-						catch(e_translate) {
-							return exit((e_translate as Error).message);
-						}
-
-						// node is not allowed
-						if('node' === s_type_expected) {
-							return exit(`Cannot use '${si_arg}' as a parameter since its corresponding value type is a node`);
-						}
-						// not unknown
-						else if('unknown' !== s_type_expected) {
-							// ref value
-							const g_value = g_arg.value;
-
-							// ref kind
-							const si_kind = g_value.kind;
-
-							// a primitive type
-							const s_type_actual = H_GRAPHQL_KINDS_MAP[si_kind as keyof typeof H_GRAPHQL_KINDS_MAP];
-							if(s_type_actual) {
-								// types do not match
-								if(s_type_actual !== s_type_expected) {
-									return exit(`Value passed to parameter '${si_arg}' is of type ${s_type_actual}, but that predicate expects a type of ${s_type_expected}`);
-								}
-							}
-							// null, enum, list, object, or variable
-							else {
-								return exit(`Value passed to parameter '${si_arg}' is of kind ${si_kind}, but that kind is not yet supported`);
-							}
-						}
-					}
 
 					// prep descriptor object
 					const h_descriptor: JsonObject = {};
@@ -427,44 +514,25 @@ export class GraphqlRewriter {
 
 					// root-level selector
 					if(a_ancestors.length <= 4) {
-						// prep plurality flag
-						let b_plural = false;
-
 						// find in schema
 						const g_def = h_queries[si_field];
+						if(!g_def) return exit(`No such root query "${si_field}". Expected one of: [${Object.keys(h_queries).map(s => `"${s}"`).join(', ')}]`);
 
-						// not found
-						if(!g_def) {
-							return exit(`No such root query "${si_field}". Expected one of: [${Object.keys(h_queries).map(s => `"${s}"`).join(', ')}]`);
-						}
+						// unwrap field type
+						const {
+							plurality: a_plurality,
+							type: si_field_type,
+						} = unwrap_field_type(g_def.type);
 
-						// ref type def node
-						let g_def_type = g_def.type;
-
-						// unwrap non-null type
-						if(Kind.NON_NULL_TYPE === g_def_type.kind) g_def_type = g_def_type.type;
-
-						// is list
-						if(Kind.LIST_TYPE === g_def_type.kind) {
-							b_plural = true;
-
-							// wrap descriptor in array annotation
+						// is single-level plural; wrap descriptor in array annotation
+						const b_plural = 1 === a_plurality.length;
+						if(b_plural) {
 							h_node[si_label] = [h_descriptor];
-
-							// unwrap list
-							g_def_type = g_def_type.type;
-
-							// unwrap non-null type
-							if(Kind.NON_NULL_TYPE === g_def_type.kind) g_def_type = g_def_type.type;
 						}
-
-						// should be named type
-						if(Kind.NAMED_TYPE !== g_def_type.kind) {
-							return exit(`Unable to process root type definition node in Query object type for key '${si_field}'`);
+						// multi-level plural
+						else if(a_plurality.length > 1) {
+							return exit(`Nested list types not supported. Root type definition node in Query object key '${si_field}'`);
 						}
-
-						// ref field type name
-						const si_field_type = g_def_type.name.value;
 
 						// not found
 						const g_object_type = _h_types[si_field_type];
@@ -509,9 +577,30 @@ export class GraphqlRewriter {
 						// add to root bgp
 						a_bgp.push(g_triple);
 
+						// special root-level filter
+						if(a_arguments.length) {
+							// // each argument
+							// for(const g_arg of a_arguments) {
+							// 	const si_arg: string = g_arg.name.value;
+
+							// 	// symbol
+							// 	const si_symbol_attr = next_symbol(si_arg);
+
+							// 	// create resolved target
+							// 	const g_target_attr = factory.variable!(`${si_symbol_attr}_value`);
+
+							// 	// argument must be a scalar
+
+							// 	// TODO: assert that attribute exists on object, is scalar type, and arg type matches field type
+							// }
+
+							return exit(`Not allowed to use arguments on top-level '${si_field}' query yet`);
+						}
+
 						// exit
 						return;
 					}
+
 
 					// find closest field ancestor
 					let g_subject!: Quad_Subject;
@@ -539,11 +628,114 @@ export class GraphqlRewriter {
 					}
 
 
+					// will be set if this field is being called as a scalar filter
+					let s_scalar_filter_type: FilterableFieldType | '' = '';
+
+					// arguments provided
+					if(a_arguments?.length) {
+						// parent is term node
+						// const g_object = (a_ancestors[a_ancestors.length-2] as TermNode).object;
+						if(g_object_type) {
+							// get fields def
+							const h_fields = g_object_type.fields;
+
+							// expect field
+							const g_field = h_fields[si_field];
+							if(!g_field) {
+								return exit(`No such field '${si_field}' on type ${g_object_type.label}`);
+							}
+
+							// unwrap field type
+							const {
+								type: si_scalar,
+								plurality: a_plurality,
+							} = unwrap_field_type(g_field.type);
+
+							// scalar
+							if(A_SCALARS.includes(si_scalar as ScalarType)) {
+								// // object annotation on type
+								// if(g_object.directives['object']) {
+
+								// not a flat scalar
+								if(a_plurality.length) {
+									return exit(`Attempted to call field '${si_field}' with arguments but field type is not flat`);
+								}
+
+								// flag as scalar filter
+								s_scalar_filter_type = si_scalar as FilterableFieldType;
+
+								// }
+								// // not annotated as an object
+								// else {
+								// 	return exit(`Attempted to call field '${si_field}' with arguments but type ${g_object.label} is not annotated as an '@object'`);
+								// }
+							}
+							// not a scalar
+							else {
+								// TODO: apply as exact match filter
+								return exit(`Filtering object type '${g_object_type.label}' by field exact match on '${si_field}' not yet implemented`);
+							}
+						}
+					}
+
+					// not a scalar filter
+					if(!s_scalar_filter_type) {
+						// type check arguments
+						for(const g_arg of a_arguments || []) {
+							// ref argument name
+							const si_arg = g_arg.name.value;
+
+							// translate
+							let p_iri: string;
+							let s_type_expected: string;
+							try {
+								({
+									iri: p_iri,
+									type: s_type_expected,
+								} = k_self.translate(si_arg));
+							}
+							catch(e_translate) {
+								return exit((e_translate as Error).message);
+							}
+
+							// node is not allowed
+							if('node' === s_type_expected) {
+								return exit(`Cannot use '${si_arg}' as a parameter since its corresponding value type is a node`);
+							}
+							// not unknown
+							else if('unknown' !== s_type_expected) {
+								// ref value
+								const g_value = g_arg.value;
+
+								// ref kind
+								const si_kind = g_value.kind;
+
+								// a primitive type
+								const s_type_actual = H_GRAPHQL_KINDS_MAP[si_kind as keyof typeof H_GRAPHQL_KINDS_MAP];
+								if(s_type_actual) {
+									// types do not match
+									if(s_type_actual !== s_type_expected) {
+										return exit(`Value passed to parameter '${si_arg}' is of type ${s_type_actual}, but that predicate expects a type of ${s_type_expected}`);
+									}
+								}
+								// null, enum, list, object, or variable
+								else {
+									return exit(`Value passed to parameter '${si_arg}' is of kind ${si_kind}, but that kind is not yet supported`);
+								}
+							}
+						}
+					}
+
+
+
 					// push current node to stack
 					a_stack.push(h_node);
 
 					// set descriptor as new node
 					h_node = h_descriptor;
+
+					// if node is set to a terminal binding
+					let z_binding: string | JsonObject[] | null = '';
 
 					// ref node's selection set property
 					const a_selections = yn_field.selectionSet?.selections;
@@ -589,7 +781,10 @@ export class GraphqlRewriter {
 						a_bgp.push(g_property);
 
 						// save to descriptor
-						a_stack.at(-1)['__typename'] = g_target.value;
+						replace_shape_node('__typename', g_target.value);
+
+						// do not allow use of hide operator
+						z_binding = null;
 					}
 					// not variable
 					else {
@@ -611,8 +806,8 @@ export class GraphqlRewriter {
 
 							const si_object_subtype = (g_object_field_def.type as {name?: {value: string}})?.name?.value;
 
-							// not a primitive type
-							if(si_object_subtype && !A_PRIMITIVES.includes(si_object_subtype)) {
+							// not a scalar type
+							if(si_object_subtype && !A_SCALARS.includes(si_object_subtype as ScalarType)) {
 								g_reference_type = _h_types[si_object_subtype];
 							}
 						}
@@ -621,10 +816,16 @@ export class GraphqlRewriter {
 						const si_symbol = next_symbol(si_label);
 
 						// create resolved target
-						g_target = factory.variable!(`${si_symbol}_${a_selections || a_arguments?.length? 'node': 'value'}`);
+						g_target = factory.variable!(`${si_symbol}_${a_selections || (a_arguments?.length && !s_scalar_filter_type)? 'node': 'value'}`);
 
 						// save to ast node
 						(yn_field as TermNode).term = g_target;
+
+						// save reference type to ast node
+						if(g_reference_type) {
+							// debugger;
+							(yn_field as TermNode).object = g_reference_type;
+						}
 
 						// use as predicate
 						let g_predicate: Quad_Predicate;
@@ -653,12 +854,20 @@ export class GraphqlRewriter {
 						// many
 						if(yn_field.directives?.find(g_directive => 'many' === g_directive.name.value)) {
 							// wrap in array annotation
-							a_stack.at(-1)[si_label] = [h_descriptor];
+							z_binding = replace_shape_node(si_label, [h_descriptor]);
 						}
 
 
+						// is scalar filter
+						if(s_scalar_filter_type) {
+							// overwrite node in shape tree to use the scalar's target variable
+							z_binding = replace_shape_node(si_label, g_target.value);
+
+							// apply the arguments as filter args
+							apply_filter_args(s_scalar_filter_type, a_arguments, g_target, a_where);
+						}
 						// has arguments
-						if(a_arguments?.length) {
+						else if(a_arguments?.length) {
 							// save to descriptor as node
 							h_descriptor['$iri'] = g_target.value;
 
@@ -723,7 +932,7 @@ export class GraphqlRewriter {
 						}
 						// terminal scalar value
 						else {
-							a_stack.at(-1)[si_label] = g_target.value;
+							z_binding = replace_shape_node(si_label, g_target.value);
 
 							// uses `@filter` directive
 							const gc_filter = yn_field.directives?.find(g => 'filter' === g.name.value);
@@ -848,6 +1057,17 @@ export class GraphqlRewriter {
 							throw new Error(`Union of inline fragment types not yet implemented`);
 						}
 					}
+
+					if(yn_field.directives?.find(g => 'hide' === g.name.value)) {
+						// string; add hidden annotation prefix
+						if(z_binding && 'string' === typeof z_binding) {
+							replace_shape_node(si_label, s_binding => '@'+s_binding);
+						}
+						// array or object
+						else {
+							h_node['@hide'] = 1;
+						}
+					}
 				},
 			},
 		});
@@ -856,36 +1076,7 @@ export class GraphqlRewriter {
 			where: a_where,
 			shape: h_root,
 			errors: a_errors,
+			extras: g_extras,
 		};
-	}
-}
-
-function graphql_value_to_rdfjs_term(g_value: ValueNode): Literal {
-	if(Kind.BOOLEAN === g_value.kind) {
-		return factory.literal(g_value.value? 'true': 'false', `${P_NS_XSD}boolean`);
-	}
-	else if(Kind.INT === g_value.kind) {
-		return factory.literal(g_value.value, `${P_NS_XSD}integer`);
-	}
-	else if(Kind.STRING === g_value.kind) {
-		return factory.literal(g_value.value);
-	}
-	else {
-		return factory.literal('void', 'void://null');
-	}
-}
-
-interface NestedArray<w> {
-	[i_index: number]: w | NestedArray<w>;
-}
-
-type NestedArrayable<w> = NestedArray<w> | w;
-
-function graphql_value_to_sparqljs_arg(g_value: ValueNode): NestedArrayable<Literal> {
-	if(Kind.LIST === g_value.kind) {
-		return g_value.values.map(graphql_value_to_sparqljs_arg);
-	}
-	else {
-		return graphql_value_to_rdfjs_term(g_value);
 	}
 }

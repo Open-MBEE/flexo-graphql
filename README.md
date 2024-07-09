@@ -1,21 +1,56 @@
 # Flexo GraphQL
 
+[![CircleCI](https://circleci.com/gh/Open-MBEE/flexo-graphql.svg?style=shield)](https://circleci.com/gh/Open-MBEE/flexo-graphql)
+<details>
+  <summary>SonarCloud</summary>  
+
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=Open-MBEE_flexo-graphql&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=Open-MBEE_flexo-graphql) [![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=Open-MBEE_flexo-graphql&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=Open-MBEE_flexo-graphql) [![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=Open-MBEE_flexo-graphql&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=Open-MBEE_flexo-graphql) [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=Open-MBEE_flexo-graphql&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=Open-MBEE_flexo-graphql) [![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=Open-MBEE_flexo-graphql&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=Open-MBEE_flexo-graphql) [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=Open-MBEE_flexo-graphql&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=Open-MBEE_flexo-graphql) [![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=Open-MBEE_flexo-graphql&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=Open-MBEE_flexo-graphql) [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=Open-MBEE_flexo-graphql&metric=bugs)](https://sonarcloud.io/summary/new_code?id=Open-MBEE_flexo-graphql) [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=Open-MBEE_flexo-graphql&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=Open-MBEE_flexo-graphql)  
+</details>
+
 ## Requirements
 
  - [Deno](https://deno.com/)
  - _(optional)_ [https://velociraptor.run/](Velociraptor) (script runner for Deno projects)
 
 
-## Install
+## Running the GraphQL server
+
+
+### Using docker
+
+Build or fetch the image:
+```sh
+docker build -t flexo-graphql .
+## OR ##
+docker pull openmbee/flexo-graphql
+```
+
+Run the container. Mount a directory to `/data` where the app can find `context.json` and `schema.graphql`:
+
+For example, if the host cwd looks like:
+```
+.
+├── README.md
+├── res
+│   ├── context.json
+│   ├── schema.graphql
+```
+
+Then the docker command to run a container mounting the `/res` directory might look like this:
+```sh
+docker run -it --rm -v $(pwd)/res:/data -e 'SPARQL_ENDPOINT=http://localhost:7200/repositories/${org}-${repo}' graphql
+```
+
+### Without docker
+
+#### Install
 
 ```sh
 vr install
 ```
 
 
-## Running the GraphQL server
-
-### Configure the SPARQL endpoint
+#### Configure the SPARQL endpoint
 
 Define a `SPARQL_ENDPOINT` environment variable that binds a **pattern** for the URL. The server will make the following substitutions in the pattern:
  - `${org}` -- replaced with the target `orgId` the user is querying
@@ -31,7 +66,7 @@ SPARQL_ENDPOINT='http://localhost:7200/repositories/${org}-${repo}'
 With this configuratino, a request to `https://graphql-server/orgs/mms/repos/test/branches/master` would forward a SPARQL request to `http://localhost:7200/repositories/mms-test`.
 
 
-### Run the server
+#### Run the server
 
 ```
 Usage: vr serve [OPTIONS]
@@ -42,7 +77,7 @@ Options:
   -p, --port VALUE    [optional] port number to bind server
 ```
 
-#### Example
+##### Example
 
 ```sh
 vr serve -c context.json -s schema.graphql
@@ -115,6 +150,17 @@ Tells the service where to collate results:
       }
     }
   }
+}
+```
+
+
+### `@paginate` directive
+
+Only allowed at the query level, limits the number of rows returned by the SPARQL query so that large results can be paginated. Keep in mind, this only makes sense for queries that do not contain any uses of the `@many` directive.
+
+```graphql
+query Example @paginate(limit: 200, offset: 100) {
+  # ...
 }
 ```
 

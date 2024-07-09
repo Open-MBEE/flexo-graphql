@@ -1,11 +1,10 @@
 import type {BinderStruct, EvalError, SparqlPlan} from './share.ts';
-import type {Dict, JsonObject, JsonValue} from 'npm:@blake.regalia/belt@^0.15.0';
+import type {Dict, JsonObject, JsonValue} from 'npm:@blake.regalia/belt@^0.37.0';
 
-import {ode} from 'npm:@blake.regalia/belt@^0.15.0';
-import {default as sparqljs} from 'npm:sparqljs@3.7.1';
+import {entries} from 'npm:@blake.regalia/belt@^0.37.0';
+import {default as sparqljs} from 'npm:sparqljs@^3';
 
 import {P_NS_BASE, P_NS_DEF, P_NS_RDF, P_NS_XSD} from './constants.ts';
-
 
 type SparqlBinding = Dict<{
 	type: 'uri';
@@ -52,21 +51,30 @@ function rebind(
 	h_out: Dict<JsonValue>,
 	a_path: string[],
 	a_errors: EvalError[]
-) {
+): boolean {
 	// copy struct
 	const h_local = {...h_struct};
 
 	// iterate into struct first to clear scalars
-	for(const [si_key, z_target] of ode(h_local)) {
+	for(const [si_key, z_target] of entries(h_local)) {
 		// terminal scalar
 		if('string' === typeof z_target) {
+			let si_target: string = z_target;
+
+			// hidden annotation
+			let b_hidden = false;
+			if('@' === z_target[0]) {
+				b_hidden = true;
+				si_target = (z_target as string).slice(1);  // eslint-disable-line @typescript-eslint/no-unnecessary-type-assertion
+			}
+
 			// reduce values
 			const as_scalars = new Set<boolean | number | string>();
 			const as_objects = new Set<string>();
 
 			// each binding; add to values set
 			for(const g_binding of a_bindings) {
-				let w_intermediate = sparql_binding_to_graphql_result(g_binding[z_target]);
+				let w_intermediate = sparql_binding_to_graphql_result(g_binding[si_target]);
 
 				// merge objects
 				if('object' === typeof w_intermediate) {
@@ -95,13 +103,18 @@ function rebind(
 				// nested selector
 				else {
 					a_errors.push({
-						message: `Multiple divergent bindings encountered; try adding the \`@many\` directive after \`${a_path.at(-1)}\` to collate results.`,
+						message: `Multiple divergent bindings encountered; try adding the \`@many\` directive to the \`${a_path.at(-1)}\` field in order to collate results.`,
 						bindingPath: a_path.join('.'),
 					});
 				}
 
 				// stop iterating
-				return;
+				return true;
+			}
+			// hidden
+			else if(b_hidden) {
+				// add key to '@hidden' list
+				((h_out['@hidden'] ||= []) as string[]).push(si_key);
 			}
 			// single scalar value
 			else if(as_scalars.size) {
@@ -118,7 +131,7 @@ function rebind(
 	}
 
 	// iterate into struct
-	for(const [si_key, z_target] of ode(h_local)) {
+	for(const [si_key, z_target] of entries(h_local)) {
 		// array
 		if(Array.isArray(z_target)) {
 			const h_shape = z_target[0];
@@ -150,7 +163,7 @@ function rebind(
 			const a_values: Dict<JsonValue>[] = [];
 
 			// each bucket
-			for(const [p_iri, g_bucket] of ode(h_buckets)) {
+			for(const [p_iri, g_bucket] of entries(h_buckets)) {
 				// copy shape
 				const h_copy = {...h_shape};
 
@@ -163,8 +176,8 @@ function rebind(
 				// prepare object
 				const h_object = g_bucket.object as Dict<JsonValue>;
 
-				// apply rebinding
-				rebind(g_bucket.bindings, h_copy as BinderStruct, h_object, a_subpath, a_errors);
+				// apply rebinding; exit on bail
+				if(rebind(g_bucket.bindings, h_copy as BinderStruct, h_object, a_subpath, a_errors)) return true;
 
 				// append to list
 				a_values.push(h_object);
@@ -175,22 +188,36 @@ function rebind(
 		}
 		// object
 		else if('object' === typeof z_target) {
+			// hide directive
+			if(z_target['@hide']) {
+				// add key to '@hidden' list
+				((h_out['@hidden'] ||= []) as string[]).push(si_key);
+
+				// skip rebinding
+				continue;
+			}
+
 			// nest out
 			const h_nested = h_out[si_key] = {};
 
-			// apply rebinding
-			rebind(a_bindings, z_target as BinderStruct, h_nested, [...a_path, si_key], a_errors);
+			// apply rebinding; exit on bail
+			if(rebind(a_bindings, z_target as BinderStruct, h_nested, [...a_path, si_key], a_errors)) return true;
 		}
 	}
+
+	return false;
 }
 
 
-export async function exec_plan(g_plan: SparqlPlan, p_endpoint: string): Promise<{
+export async function exec_plan(g_plan: SparqlPlan, p_endpoint: string, h_headers: Dict): Promise<{
 	bindings: Dict<JsonValue>;
 	errors: EvalError[];
 	query: string;
 }> {
 	const y_gen = new sparqljs.Generator();
+
+	// prep extras
+	const g_extras = g_plan.extras || {};
 
 	const sx_sparql = y_gen.stringify({
 		queryType: 'SELECT',
@@ -202,15 +229,15 @@ export async function exec_plan(g_plan: SparqlPlan, p_endpoint: string): Promise
 		type: 'query',
 		prefixes: h_prefixes,
 		where: g_plan.where,
+		...g_extras,
 	});
 
 	const d_res = await fetch(p_endpoint, {
 		method: 'POST',
-		body: new URLSearchParams({
-			query: sx_sparql,
-		}),
+		body: sx_sparql,
 		headers: {
-			'Content-Type': 'application/x-www-form-urlencoded',
+			...h_headers,
+			'Content-Type': 'application/sparql-query',
 			'Accept': 'application/sparql-results+json',
 		},
 	});
