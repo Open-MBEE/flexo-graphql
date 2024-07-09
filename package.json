@@ -7,10 +7,10 @@
     "dev-upgrade": "ncu -u && yarn install"
   },
   "devDependencies": {
-    "@blake.regalia/eslint-config-elite": "^0.3.3",
-    "@blake.regalia/tsconfig": "^0.1.2",
-    "@typescript-eslint/parser": "^6.8.0",
+    "@blake.regalia/eslint-config-elite": "^0.4.4",
+    "@blake.regalia/tsconfig": "^0.2.0",
+    "@typescript-eslint/parser": "^7.16.0",
     "eslint": "^8.51.0",
-    "typescript": "^5.2.2"
+    "typescript": "^5.5.3"
   }
 }

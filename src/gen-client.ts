@@ -1,7 +1,7 @@
 import type {Dict} from 'npm:@blake.regalia/belt@^0.37.0';
 import type {ObjectTypeDefinitionNode} from 'npm:graphql@^16.8.0';
 
-import {readAll} from 'https://deno.land/std@0.224.0/streams/read_all.ts';
+import {readAll} from 'jsr:@std/io';
 import {Kind, parse, visit} from 'npm:graphql@^16.8.0';
 
 import {A_SCALARS} from './constants.ts';
@@ -41,7 +41,7 @@ const camel = (s_name: string) => s_name[0].toLowerCase()+s_name.slice(1);
 				const a_fragments = [];
 				for(const g_field of y_node.fields || []) {
 					if(Kind.NAMED_TYPE === g_field.type.kind) {
-						if(A_SCALARS.includes(g_field.type.name.value)) {
+						if(A_SCALARS.includes(g_field.type.name.value as 'String')) {
 							a_fragments.push(g_field.name.value);
 						}
 						// else {
