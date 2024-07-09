@@ -4,7 +4,7 @@
 import type {FilterableFieldType, ScalarType} from './constants.ts';
 import type {BinderStruct, SparqlPlan, EvalError, QueryModifiers} from './share.ts';
 import type {Dict, JsonObject, JsonValue, Nilable} from 'npm:@blake.regalia/belt@^0.37.0';
-import type {Literal, NamedNode, Quad, Quad_Object, Quad_Predicate, Quad_Subject} from 'npm:@rdfjs/types@^1.1.0';
+import type {NamedNode, Quad, Quad_Object, Quad_Predicate, Quad_Subject} from 'npm:@rdfjs/types@^1.1.0';
 import type {Pattern} from 'npm:@types/sparqljs@^3.1';
 import type {
 	ArgumentNode,
@@ -17,7 +17,6 @@ import type {
 	InlineFragmentNode,
 	InterfaceTypeDefinitionNode,
 	ObjectTypeDefinitionNode,
-	ValueNode,
 } from 'npm:graphql@^16.8.0';
 
 import {assign, entries, proper} from 'npm:@blake.regalia/belt@^0.37.0';
@@ -54,10 +53,6 @@ const H_BINARY_OPERATORS: Dict = {
 	// lt: '<',
 	// gte: '>=',
 	// lte: '<=',
-	// equalTo: '=',
-	// notEqualTo: '!=',
-	// lesserThan: '<',
-	// lesserThanOrEqualTo: '<=',
 
 	equals: '=',
 	notEquals: '!=',
@@ -218,9 +213,12 @@ function parse_directive<h_args extends Record<string, {
 						z_value = null;
 						break;
 					}
+
+					default: { break; }
 				}
 
-				h_values[si_arg] = z_value;
+				// deno-lint-ignore no-explicit-any
+				h_values[si_arg] = z_value as any;
 			}
 			// arg not found but required
 			else if(!gc_arg.optional) {
