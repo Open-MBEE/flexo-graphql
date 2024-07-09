@@ -1,4 +1,4 @@
-FROM denoland/deno:alpine-1.37.1
+FROM denoland/deno:alpine-1.44.4
 
 RUN apk add tzdata &&  \
     adduser deno users && \
