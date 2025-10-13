@@ -39,6 +39,7 @@ For example, if the host cwd looks like:
 Then the docker command to run a container mounting the `/res` directory might look like this:
 ```sh
 docker run -it --rm -v $(pwd)/res:/data -e 'SPARQL_ENDPOINT=http://localhost:7200/repositories/${org}-${repo}' graphql
+docker run -v ./data:/data -e 'SPARQL_ENDPOINT=http://localhost:8080/orgs/${org}/repos/${repo}/${branchesLocks}/${branch}/query' -p 3001:3001 flexo-graphql
 ```
 
 ### Without docker
