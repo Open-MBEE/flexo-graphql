@@ -39,6 +39,7 @@ For example, if the host cwd looks like:
 Then the docker command to run a container mounting the `/res` directory might look like this:
 ```sh
 docker run -it --rm -v $(pwd)/res:/data -e 'SPARQL_ENDPOINT=http://localhost:7200/repositories/${org}-${repo}' graphql
+docker run -v ./data:/data -e 'SPARQL_ENDPOINT=http://localhost:8080/orgs/${org}/repos/${repo}/${branchesLocks}/${branch}/query' -p 3001:3001 flexo-graphql
 ```
 
 ### Without docker
@@ -55,6 +56,7 @@ vr install
 Define a `SPARQL_ENDPOINT` environment variable that binds a **pattern** for the URL. The server will make the following substitutions in the pattern:
  - `${org}` -- replaced with the target `orgId` the user is querying
  - `${repo}` -- replaced with the target `repoId` the user is querying
+ - `${branchesLocks}` -- replaced with 'branches' or 'locks'
  - `${branch}` -- replaced with the target `branchId` the user is querying
 
 For example:
@@ -85,9 +87,9 @@ vr serve -c context.json -s schema.graphql
 
 By default, the server attempts to bind to port `3001`.
 
-The GraphQL endpoint will be available (via POST requests) at: `/orgs/${org}/repos/${repo}/branches/${branch}/graphql`
+The GraphQL endpoint will be available (via POST requests) at: `/orgs/${org}/repos/${repo}/${branchesLocks}/${branch}/graphql`
 
-Additionally, a GraphiQL interface is exposed at: `/orgs/${org}/repos/${repo}/branches/${branch}/`
+Additionally, a GraphiQL interface is exposed at: `/orgs/${org}/repos/${repo}/${branchesLocks}/${branch}/`
 
 
 ## Documentation

@@ -96,7 +96,7 @@ const sx_graphql_schema_transformed = print(y_doc_schema_transformed) as string;
 const y_apollo = new SchemaHandler(sx_graphql_schema_transformed);
 
 // route pattern
-const sx_pattern = `/orgs/:org/repos/:repo/branches/:branch`;
+const sx_pattern = `/orgs/:org/repos/:repo/:branchesLocks/:branch`;
 
 async function graphiql(y_ctx: RouterContext<string>) {
 	await send(y_ctx, './', {
@@ -122,7 +122,7 @@ const y_router = new Router()
 	.get('/', async(y_ctx) => {
 		const d_params = y_ctx.request.url.searchParams;
 		if(d_params.has('org') && d_params.has('repo')) {
-			return await y_ctx.response.redirect(`/orgs/${d_params.get('org')}/repos/${d_params.get('repo')}/branches/${d_params.get('branch') || 'master'}/`);
+			return await y_ctx.response.redirect(`/orgs/${d_params.get('org')}/repos/${d_params.get('repo')}/${d_params.get('branchesLocks')}/${d_params.get('branch') || 'master'}/`);
 		}
 
 		await send(y_ctx, './', {
@@ -247,7 +247,7 @@ const y_router = new Router()
 
 		// materialize endpoint URL
 		const p_endpoint: string = P_ENDPOINT.replace(/\$\{([^}]+)\}/g, (s_0, s_var: keyof typeof h_params) => h_params[s_var]!);
-
+		console.log('sending to ' + p_endpoint);
 		// collect all other headers
 		const h_headers = scrub_headers(d_req);
 
